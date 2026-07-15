@@ -30,8 +30,12 @@ export default function Footer({ onNavigate, siteSettings }: FooterProps) {
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-4">
             <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => onNavigate('/')}>
-              <div className="flex h-8 w-8 items-center justify-center rounded border border-[var(--border)] bg-black text-white dark:bg-white dark:text-black">
-                <span className="font-mono text-xs font-bold tracking-widest">CK</span>
+              <div className="flex h-9 w-12 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-white p-1">
+                <img
+                  src="/ck-logo.png"
+                  alt="CK Studio"
+                  className="h-full w-full object-contain"
+                />
               </div>
               <span className="font-sans text-base font-bold tracking-tight text-[var(--text-primary)]">
                 {siteSettings.studioName}

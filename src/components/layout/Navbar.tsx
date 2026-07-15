@@ -77,8 +77,12 @@ export default function Navbar({ currentPath, onNavigate, isAdmin, onLogoutAdmin
             className="flex cursor-pointer items-center gap-3 group"
             id="nav-logo"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded border border-[var(--border)] bg-black text-white dark:bg-white dark:text-black group-hover:scale-105 transition-transform">
-              <span className="font-mono text-base font-extrabold tracking-widest">CK</span>
+            <div className="flex h-11 w-14 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-white p-1 shadow-sm transition-transform group-hover:scale-105">
+              <img
+                src="/ck-logo.png"
+                alt="CK Studio"
+                className="h-full w-full object-contain"
+              />
             </div>
             <div>
               <span className="font-sans text-lg font-bold tracking-tight text-[var(--text-primary)]">CK Studio</span>
