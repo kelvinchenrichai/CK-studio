@@ -1,0 +1,6 @@
+{
+  "name": "CK Studio",
+  "description": "Building intelligent software for traders, creators, and businesses. A Studio Operating System supporting client portal, custom quotes, contract signing, and Stripe payments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
