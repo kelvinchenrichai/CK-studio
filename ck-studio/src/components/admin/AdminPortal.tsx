@@ -74,16 +74,26 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
     notesEn: string;
   } | null>(null);
 
-  // Load all preseeded database repositories
-  const loadDatabase = () => {
-    setProjects(repository.getProjects());
-    setServices(repository.getServices());
-    setClients(repository.getClients());
-    setInquiries(repository.getInquiries());
-    setQuotes(repository.getQuotes());
-    setContracts(repository.getContracts());
-    setPayments(repository.getPayments());
-    setAuditLogs(repository.getAuditLogs().reverse()); // Reverse to see newest first
+  // Load all database repositories (async - works with both Supabase and LocalStorage)
+  const loadDatabase = async () => {
+    const [proj, svc, cli, inq, quo, con, pay, logs] = await Promise.all([
+      repository.getProjects(),
+      repository.getServices(),
+      repository.getClients(),
+      repository.getInquiries(),
+      repository.getQuotes(),
+      repository.getContracts(),
+      repository.getPayments(),
+      repository.getAuditLogs(),
+    ]);
+    setProjects(proj);
+    setServices(svc);
+    setClients(cli);
+    setInquiries(inq);
+    setQuotes(quo);
+    setContracts(con);
+    setPayments(pay);
+    setAuditLogs([...logs].reverse());
   };
 
   useEffect(() => {
@@ -104,7 +114,7 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
   };
 
   // 1. PROJECT SHOWCASE CMS ACTIONS
-  const handleSaveProject = () => {
+  const handleSaveProject = async () => {
     if (!editingProject?.titleZh || !editingProject?.titleEn || !editingProject?.slug) {
       alert('Missing required fields for Project Showcase entry.');
       return;
@@ -112,10 +122,10 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
 
     if (editingProject.id) {
       // Update existing
-      repository.updateProject(editingProject.id, editingProject);
+      await repository.updateProject(editingProject.id, editingProject);
     } else {
       // Create new
-      repository.createProject({
+      await repository.createProject({
         ...editingProject,
         techStack: editingProject.techStack || ['TypeScript'],
         featuresZh: editingProject.featuresZh || [],
@@ -128,28 +138,28 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
     }
 
     setEditingProject(null);
-    loadDatabase();
+    await loadDatabase();
   };
 
-  const handleDeleteProject = (id: string) => {
+  const handleDeleteProject = async (id: string) => {
     if (confirm('Are you sure you want to delete this case study portfolio?')) {
-      repository.deleteProject(id);
-      loadDatabase();
+      await repository.deleteProject(id);
+      await loadDatabase();
     }
   };
 
   // 2. SERVICES CMS CATALOG ACTIONS
-  const handleSaveService = () => {
+  const handleSaveService = async () => {
     if (!editingService?.titleZh || !editingService?.titleEn || !editingService?.categoryId) {
       alert('Missing required fields for Service Item entry.');
       return;
     }
 
     if (editingService.id) {
-      repository.updateService(editingService.id, editingService);
+      await repository.updateService(editingService.id, editingService);
     } else {
       const randomId = `srv-${Math.floor(Math.random() * 90000) + 10000}`;
-      repository.createService({
+      await repository.createService({
         ...editingService,
         id: randomId,
         shortDescriptionZh: editingService.shortDescriptionZh || '',
@@ -167,7 +177,7 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
     }
 
     setEditingService(null);
-    loadDatabase();
+    await loadDatabase();
   };
 
   // 3. COMPILE CUSTOM QUOTE FROM CRM INQUIRY
@@ -185,12 +195,14 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
     setActiveTab('quotes');
   };
 
-  const handleSaveCompiledQuote = () => {
+  const handleSaveCompiledQuote = async () => {
     if (!compilingQuote) return;
 
     const publicTokenForAlert = `tok_quote_${Math.random().toString(36).substring(2, 10)}`; // saved internally
     
-    repository.createQuote({
+    await repository.createQuote({
+      quoteNumber: `Q-${Date.now()}`,
+      publicToken: `tok_quote_${Math.random().toString(36).substring(2, 10)}`,
       clientId: compilingQuote.clientId,
       selectedPlanId: 'plan-business',
       customTitleZh: compilingQuote.customTitleZh,
@@ -210,6 +222,8 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
       termsEn: 'Subject to SOW schedule attachment.',
       lineItems: [
         {
+          id: '',
+          quoteId: '',
           titleZh: compilingQuote.customTitleZh,
           titleEn: compilingQuote.customTitleEn,
           descriptionZh: compilingQuote.notesZh,
@@ -217,27 +231,28 @@ export default function AdminPortal({ onNavigate, onLoginSuccess, isLoggedIn }: 
           quantity: 1,
           unitPrice: compilingQuote.subtotal,
           amount: compilingQuote.subtotal,
-          type: 'service'
+          type: 'service' as const,
         }
       ]
     });
 
     setCompilingQuote(null);
-    loadDatabase();
+    await loadDatabase();
     alert(`Successfully compiled custom quote!`);
   };
 
   // 4. LEDGER ACTIONS (Manual Payments Settle)
-  const handleSettlePaymentStatus = (paymentId: string) => {
-    repository.updatePaymentStatus(paymentId, 'paid');
+  const handleSettlePaymentStatus = async (paymentId: string) => {
+    await repository.updatePaymentStatus(paymentId, 'paid');
     
     // Automatically flag matched contract as deposit_paid
-    const p = repository.getPayments().find(pay => pay.id === paymentId);
+    const allPay = await repository.getPayments();
+    const p = allPay.find(pay => pay.id === paymentId);
     if (p && p.contractId) {
-      repository.updateContractStatus(p.contractId, 'deposit_paid');
+      await repository.updateContractStatus(p.contractId, 'deposit_paid');
     }
 
-    loadDatabase();
+    await loadDatabase();
     alert('Payment Settle ledger updated to Paid status.');
   };
 

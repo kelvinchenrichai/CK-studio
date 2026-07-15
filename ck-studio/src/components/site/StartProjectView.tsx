@@ -39,25 +39,27 @@ export default function StartProjectView({ siteSettings, navigationState }: Star
   const [invoice, setInvoice] = useState<boolean>(false);
 
   useEffect(() => {
-    // If state inherits from pricing, auto populate description
-    if (navigationState?.preselectedPlanId) {
-      const plans = repository.getPricingPlans();
-      const plan = plans.find(p => p.id === navigationState.preselectedPlanId);
-      if (plan) {
-        setProjectType(lang === 'zh' ? plan.nameZh : plan.nameEn);
-        setBudget(`TWD ${plan.basePrice.toLocaleString()} - ${(plan.basePrice * 1.5).toLocaleString()}`);
-        let addMsg = `Interested in preselected blueprint: ${plan.nameEn}.\n`;
-        if (navigationState.preselectedAddonIds?.length) {
-          const addons = repository.getAddOns();
-          addMsg += `Preselected Add-ons:\n`;
-          navigationState.preselectedAddonIds.forEach(id => {
-            const add = addons.find(a => a.id === id);
-            if (add) addMsg += `- ${add.nameEn} (NT$ ${add.price.toLocaleString()})\n`;
-          });
+    const load = async () => {
+      if (navigationState?.preselectedPlanId) {
+        const plans = await repository.getPricingPlans();
+        const plan = plans.find(p => p.id === navigationState.preselectedPlanId);
+        if (plan) {
+          setProjectType(lang === 'zh' ? plan.nameZh : plan.nameEn);
+          setBudget(`TWD ${plan.basePrice.toLocaleString()} - ${(plan.basePrice * 1.5).toLocaleString()}`);
+          let addMsg = `Interested in preselected blueprint: ${plan.nameEn}.\n`;
+          if (navigationState.preselectedAddonIds?.length) {
+            const addons = await repository.getAddOns();
+            addMsg += `Preselected Add-ons:\n`;
+            navigationState.preselectedAddonIds.forEach(id => {
+              const add = addons.find(a => a.id === id);
+              if (add) addMsg += `- ${add.nameEn} (NT$ ${add.price.toLocaleString()})\n`;
+            });
+          }
+          setDesc(addMsg);
         }
-        setDesc(addMsg);
       }
-    }
+    };
+    load();
   }, [navigationState, lang]);
 
   const handleSubmitForm = (e: React.FormEvent) => {

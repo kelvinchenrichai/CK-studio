@@ -34,14 +34,16 @@ export default function HomeView({ onNavigate, siteSettings }: HomeViewProps) {
   const [activeTab, setActiveTab] = useState<'quote' | 'contract' | 'payment'>('quote');
 
   useEffect(() => {
-    // Load from repository dynamically
-    const allProjects = repository.getProjects();
-    const featuredP = allProjects.filter(p => p.isFeatured).slice(0, 3);
-    setFeaturedProjects(featuredP.length ? featuredP : allProjects.slice(0, 3));
+    const load = async () => {
+      const allProjects = await repository.getProjects();
+      const featuredP = allProjects.filter(p => p.isFeatured).slice(0, 3);
+      setFeaturedProjects(featuredP.length ? featuredP : allProjects.slice(0, 3));
 
-    const allServices = repository.getServices();
-    const featuredS = allServices.filter(s => s.isFeatured).slice(0, 3);
-    setFeaturedServices(featuredS.length ? featuredS : allServices.slice(0, 3));
+      const allServices = await repository.getServices();
+      const featuredS = allServices.filter(s => s.isFeatured).slice(0, 3);
+      setFeaturedServices(featuredS.length ? featuredS : allServices.slice(0, 3));
+    };
+    load();
   }, []);
 
   const capabilities = [

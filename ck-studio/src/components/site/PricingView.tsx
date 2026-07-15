@@ -21,8 +21,13 @@ export default function PricingView({ onNavigate }: PricingViewProps) {
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
 
   useEffect(() => {
-    setPlans(repository.getPricingPlans().filter(p => p.visibility === 'public' && p.status === 'active'));
-    setAddons(repository.getAddOns().filter(a => a.status === 'active'));
+    const load = async () => {
+      const allPlans = await repository.getPricingPlans();
+      setPlans(allPlans.filter(p => p.visibility === 'public' && p.status === 'active'));
+      const allAddons = await repository.getAddOns();
+      setAddons(allAddons.filter(a => a.status === 'active'));
+    };
+    load();
   }, []);
 
   const handleAddonToggle = (id: string) => {

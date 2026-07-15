@@ -54,58 +54,57 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
     }
   }, [urlToken]);
 
-  const loadTokenWorkspace = (tok: string) => {
+  const loadTokenWorkspace = async (tok: string) => {
+    const [allQuotes, allClients, allContracts, allPayments] = await Promise.all([
+      repository.getQuotes(),
+      repository.getClients(),
+      repository.getContracts(),
+      repository.getPayments(),
+    ]);
+
     // Attempt to match quote token
-    const matchedQuote = repository.getQuotes().find(q => q.publicToken === tok);
+    const matchedQuote = allQuotes.find(q => q.publicToken === tok);
     if (matchedQuote) {
       setQuote(matchedQuote);
-      const matchedClient = repository.getClients().find(c => c.id === matchedQuote.clientId);
+      const matchedClient = allClients.find(c => c.id === matchedQuote.clientId);
       if (matchedClient) setClient(matchedClient);
-      
-      // Match related contract if exists
-      const matchedContract = repository.getContracts().find(c => c.quoteId === matchedQuote.id);
+
+      const matchedContract = allContracts.find(c => c.quoteId === matchedQuote.id);
       if (matchedContract) {
         setContract(matchedContract);
-        // Determine step based on status
         if (matchedContract.status === 'signed' || matchedContract.status === 'deposit_paid') {
-          // If contract is signed but not paid, go to payment. If paid, go to success
-          const relatedPayment = repository.getPayments().find(p => p.contractId === matchedContract.id && p.status === 'paid');
+          const relatedPayment = allPayments.find(p => p.contractId === matchedContract.id && p.status === 'paid');
           if (relatedPayment || matchedContract.status === 'deposit_paid') {
-            setStepperIndex(3); // Success Onboarding
+            setStepperIndex(3);
             if (relatedPayment) setPayment(relatedPayment);
           } else {
-            setStepperIndex(2); // Payment
+            setStepperIndex(2);
           }
         } else if (matchedContract.status === 'accepted') {
-          setStepperIndex(1); // Needs signature
+          setStepperIndex(1);
         } else {
-          setStepperIndex(0); // Needs quote accept
+          setStepperIndex(0);
         }
       } else {
-        setStepperIndex(0); // Just a quote for now
+        setStepperIndex(0);
       }
       return;
     }
 
     // Attempt to match contract token directly
-    const matchedContract = repository.getContracts().find(c => c.publicToken === tok);
+    const matchedContract = allContracts.find(c => c.publicToken === tok);
     if (matchedContract) {
       setContract(matchedContract);
-      const matchedClient = repository.getClients().find(c => c.id === matchedContract.clientId);
+      const matchedClient = allClients.find(c => c.id === matchedContract.clientId);
       if (matchedClient) setClient(matchedClient);
-      
-      const relatedQuote = repository.getQuotes().find(q => q.id === matchedContract.quoteId);
+
+      const relatedQuote = allQuotes.find(q => q.id === matchedContract.quoteId);
       if (relatedQuote) setQuote(relatedQuote);
 
-      if (matchedContract.status === 'deposit_paid') {
-        setStepperIndex(3);
-      } else if (matchedContract.status === 'signed') {
-        setStepperIndex(2);
-      } else if (matchedContract.status === 'accepted') {
-        setStepperIndex(1);
-      } else {
-        setStepperIndex(0);
-      }
+      if (matchedContract.status === 'deposit_paid') setStepperIndex(3);
+      else if (matchedContract.status === 'signed') setStepperIndex(2);
+      else if (matchedContract.status === 'accepted') setStepperIndex(1);
+      else setStepperIndex(0);
     }
   };
 
@@ -116,35 +115,28 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
   };
 
   // ACTIONS: Accept Quote
-  const handleAcceptQuote = () => {
+  const handleAcceptQuote = async () => {
     if (!quote) return;
-    
-    // Accept the quote in repository
-    repository.updateQuoteStatus(quote.id, 'accepted');
-    
-    // Automatically provision or retrieve matching Contract in state
-    let matchedContract = repository.getContracts().find(c => c.quoteId === quote.id);
+    await repository.updateQuoteStatus(quote.id, 'accepted');
+    const allContracts = await repository.getContracts();
+    let matchedContract = allContracts.find(c => c.quoteId === quote.id);
     if (!matchedContract) {
-      matchedContract = repository.createContractFromQuote(quote);
+      matchedContract = await repository.createContractFromQuote(quote);
     }
-    repository.updateContractStatus(matchedContract.id, 'sent');
-
+    await repository.updateContractStatus(matchedContract.id, 'sent');
     setContract(matchedContract);
-    setStepperIndex(1); // Proceed to contract signature
+    setStepperIndex(1);
   };
 
   // ACTIONS: Sign Contract
-  const handleSignContract = () => {
+  const handleSignContract = async () => {
     if (!contract || !signatureName.trim()) {
       alert(lang === 'zh' ? '請輸入您完整的法定姓名以完成簽署' : 'Please type your full legal name to sign');
       return;
     }
-
-    const updated = repository.signContract(contract.id, signatureName.trim());
-    if (updated) {
-      setContract(updated);
-    }
-    setStepperIndex(2); // Proceed to payment
+    const updated = await repository.signContract(contract.id, signatureName.trim());
+    if (updated) setContract(updated);
+    setStepperIndex(2);
   };
 
   // ACTIONS: Payment Checkout Redirection (Stripe & Bank transfer)
@@ -153,7 +145,8 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
 
     if (paymentMethod === 'stripe') {
       // 1. Create payment ledger record in local repositories
-      const freshPayment = repository.createPayment({
+      const freshPayment = await repository.createPayment({
+        paymentNumber: `PAY-${Date.now()}`,
         clientId: contract.clientId,
         quoteId: contract.quoteId || '',
         contractId: contract.id,
@@ -184,45 +177,41 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
           console.log(`[Checkout URL Redirecting] -> ${data.url}`);
           
           if (data.isMock) {
-            // Simulated Stripe Checkout behavior - mark payment as paid persistently in our repo right away!
-            repository.updatePaymentStatus(freshPayment.id, 'paid');
-            repository.updateContractStatus(contract.id, 'deposit_paid');
-            // Go to the URL
+            await repository.updatePaymentStatus(freshPayment.id, 'paid');
+            await repository.updateContractStatus(contract.id, 'deposit_paid');
             window.location.href = data.url;
           } else {
-            // Real Stripe checkout redirection
             window.location.href = data.url;
           }
         }
       } catch (error) {
         console.error('[Payment API Redirection Error]', error);
         alert('Payment initiation failed. Proceeding with Simulated Direct Confirmation.');
-        // Secure manual bypass for demo resilience
-        repository.updatePaymentStatus(freshPayment.id, 'paid');
-        repository.updateContractStatus(contract.id, 'deposit_paid');
+        await repository.updatePaymentStatus(freshPayment.id, 'paid');
+        await repository.updateContractStatus(contract.id, 'deposit_paid');
         setStepperIndex(3);
       }
 
     } else {
-      // Manual Remittance proof submission
       if (!bankLastFive || bankLastFive.length < 5) {
         alert(lang === 'zh' ? '請輸入匯款帳號後五碼以供對帳' : 'Please enter the last 5 digits of your bank account');
         return;
       }
 
-      repository.createPayment({
+      await repository.createPayment({
+        paymentNumber: `PAY-${Date.now()}`,
         clientId: contract.clientId,
         quoteId: contract.quoteId || '',
         contractId: contract.id,
         provider: 'manual',
         amount: contract.depositAmount,
         currency: 'TWD',
-        status: 'paid', // Instant mock validation success
+        status: 'paid',
         paymentMethod: `Bank Wire (last 5 digits: ${bankLastFive})`,
         paidAt: new Date().toISOString()
       });
 
-      repository.updateContractStatus(contract.id, 'deposit_paid');
+      await repository.updateContractStatus(contract.id, 'deposit_paid');
       setPaymentSent(true);
       
       // Auto transition to success dashboard

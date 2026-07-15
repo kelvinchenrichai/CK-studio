@@ -63,10 +63,27 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Global Brand/Site settings loaded from Mock Site Settings Repository
-  const [siteSettings, setSiteSettings] = useState(() => {
-    return repository.getSiteSettings();
-  });
+  // Global Brand/Site settings loaded from repository (Supabase or LocalStorage)
+  const [siteSettings, setSiteSettings] = useState<any>(null);
+
+  useEffect(() => {
+    repository.getSiteSettings().then(setSiteSettings).catch(() => {
+      // Fallback defaults if settings not yet seeded
+      setSiteSettings({
+        studioName: 'CK Studio',
+        taglineZh: '為交易員、創作者與企業打造 AI 驅動的智能軟體系統。',
+        taglineEn: 'Building intelligent software for traders, creators, and businesses.',
+        email: 'hello@ckstudio.dev',
+        phone: '+886 900 000 000',
+        officialLineUrl: 'https://lin.ee/your-line-placeholder',
+        bookingUrl: 'https://calendly.com/ck-studio',
+        socials: {},
+        defaultLanguage: 'zh',
+        defaultTheme: 'dark',
+        brandColor: '#3B82F6',
+      });
+    });
+  }, []);
 
   // Admin login status
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
@@ -119,7 +136,8 @@ function AppContent() {
       name: waitlistName,
       email: waitlistEmail,
       phone: waitlistPhone,
-      lineId: ''
+      lineId: '',
+      status: 'new'
     });
 
     setWaitlistSuccess(true);

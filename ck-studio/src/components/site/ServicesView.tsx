@@ -36,8 +36,11 @@ export default function ServicesView({ onNavigate, siteSettings, onOpenWaitlist 
   const [showMatrix, setShowMatrix] = useState<boolean>(true);
 
   useEffect(() => {
-    setCategories(repository.getCategories());
-    setServices(repository.getServices());
+    const load = async () => {
+      setCategories(await repository.getCategories());
+      setServices(await repository.getServices());
+    };
+    load();
   }, []);
 
   const filteredServices = services.filter((service) => {

@@ -21,15 +21,17 @@ export default function PortfolioView({ onNavigate, selectedSlug }: PortfolioVie
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   useEffect(() => {
-    const list = repository.getProjects();
-    setProjects(list);
-
-    if (selectedSlug) {
-      const match = list.find(p => p.slug === selectedSlug);
-      if (match) setSelectedProject(match);
-    } else {
-      setSelectedProject(null);
-    }
+    const load = async () => {
+      const list = await repository.getProjects();
+      setProjects(list);
+      if (selectedSlug) {
+        const match = list.find(p => p.slug === selectedSlug);
+        if (match) setSelectedProject(match);
+      } else {
+        setSelectedProject(null);
+      }
+    };
+    load();
   }, [selectedSlug]);
 
   const categories = Array.from(new Set(projects.map(p => p.category))) as string[];

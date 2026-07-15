@@ -1079,7 +1079,7 @@ class LocalStorageRepository {
   }
 
   // 1. PROJECTS
-  getProjects(): Project[] {
+  async getProjects(): Promise<Project[]> {
     return this.load<Project>('projects', defaultProjects);
   }
   saveProjects(projects: Project[]): void {
@@ -1088,7 +1088,7 @@ class LocalStorageRepository {
   }
 
   // 2. SERVICE CATEGORIES & ITEMS
-  getCategories(): ServiceCategory[] {
+  async getCategories(): Promise<ServiceCategory[]> {
     return this.load<ServiceCategory>('categories', defaultCategories);
   }
   saveCategories(cats: ServiceCategory[]): void {
@@ -1096,7 +1096,7 @@ class LocalStorageRepository {
     this.logAction('system', 'update_service_categories', 'categories', 'all');
   }
 
-  getServices(): Service[] {
+  async getServices(): Promise<Service[]> {
     return this.load<Service>('services', defaultServices);
   }
   saveServices(services: Service[]): void {
@@ -1105,7 +1105,7 @@ class LocalStorageRepository {
   }
 
   // 3. PRICING PLANS
-  getPricingPlans(): PricingPlan[] {
+  async getPricingPlans(): Promise<PricingPlan[]> {
     return this.load<PricingPlan>('plans', defaultPlans);
   }
   savePricingPlans(plans: PricingPlan[]): void {
@@ -1114,7 +1114,7 @@ class LocalStorageRepository {
   }
 
   // 4. ADDONS
-  getAddOns(): AddOn[] {
+  async getAddOns(): Promise<AddOn[]> {
     return this.load<AddOn>('addons', defaultAddOns);
   }
   saveAddOns(addons: AddOn[]): void {
@@ -1131,14 +1131,14 @@ class LocalStorageRepository {
   }
 
   // 6. CLIENTS CRM
-  getClients(): Client[] {
+  async getClients(): Promise<Client[]> {
     return this.load<Client>('clients', []);
   }
   saveClients(clients: Client[]): void {
     this.save('clients', clients);
   }
-  createClient(client: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>): Client {
-    const clients = this.getClients();
+  async createClient(client: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>): Promise<Client> {
+    const clients = this.load<Client>('clients', []);
     const newClient: Client = {
       ...client,
       id: `cli-${generateId()}`,
@@ -1152,14 +1152,14 @@ class LocalStorageRepository {
   }
 
   // 7. INQUIRIES
-  getInquiries(): Inquiry[] {
+  async getInquiries(): Promise<Inquiry[]> {
     return this.load<Inquiry>('inquiries', []);
   }
   saveInquiries(inquiries: Inquiry[]): void {
     this.save('inquiries', inquiries);
   }
-  createInquiry(inquiry: Omit<Inquiry, 'id' | 'createdAt'>): Inquiry {
-    const inquiries = this.getInquiries();
+  async createInquiry(inquiry: Omit<Inquiry, 'id' | 'createdAt'>): Promise<Inquiry> {
+    const inquiries = this.load<Inquiry>('inquiries', []);
     const newInquiry: Inquiry = {
       ...inquiry,
       id: `inq-${generateId()}`,
@@ -1169,7 +1169,7 @@ class LocalStorageRepository {
     this.saveInquiries(inquiries);
 
     // Also auto-create or update a client in CRM
-    const clients = this.getClients();
+    const clients = this.load<Client>('clients', []);
     const existingClient = clients.find(c => c.email.toLowerCase() === inquiry.email.toLowerCase());
     if (!existingClient) {
       this.createClient({
@@ -1198,17 +1198,17 @@ class LocalStorageRepository {
   }
 
   // 8. QUOTES & CONTRACTS
-  getQuotes(): Quote[] {
+  async getQuotes(): Promise<Quote[]> {
     return this.load<Quote>('quotes', []);
   }
   saveQuotes(quotes: Quote[]): void {
     this.save('quotes', quotes);
   }
-  createQuote(quoteData: Omit<Quote, 'id' | 'quoteNumber' | 'publicToken' | 'createdAt' | 'updatedAt' | 'lineItems'> & { lineItems: Omit<QuoteLineItem, 'id' | 'quoteId'>[] }): Quote {
-    const quotes = this.getQuotes();
+  async createQuote(quoteData: Omit<Quote, 'id' | 'createdAt' | 'updatedAt'>): Promise<Quote> {
+    const quotes = this.load<Quote>('quotes', []);
     const quoteId = `qte-${generateId()}`;
-    const quoteNumber = `Q-${new Date().getFullYear()}${(quotes.length + 1).toString().padStart(4, '0')}`;
-    const publicToken = `token-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
+    const quoteNumber = quoteData.quoteNumber || `Q-${new Date().getFullYear()}${(quotes.length + 1).toString().padStart(4, '0')}`;
+    const publicToken = quoteData.publicToken || `token-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
 
     const formattedLineItems: QuoteLineItem[] = quoteData.lineItems.map((item, idx) => ({
       ...item,
@@ -1248,8 +1248,8 @@ class LocalStorageRepository {
     return newQuote;
   }
 
-  updateQuoteStatus(quoteId: string, status: Quote['status']): Quote | null {
-    const quotes = this.getQuotes();
+  async updateQuoteStatus(quoteId: string, status: Quote['status']): Promise<Quote | null> {
+    const quotes = this.load<Quote>('quotes', []);
     const idx = quotes.findIndex(q => q.id === quoteId);
     if (idx === -1) return null;
     quotes[idx].status = status;
@@ -1265,26 +1265,26 @@ class LocalStorageRepository {
     return quotes[idx];
   }
 
-  getContracts(): Contract[] {
+  async getContracts(): Promise<Contract[]> {
     return this.load<Contract>('contracts', []);
   }
   saveContracts(contracts: Contract[]): void {
     this.save('contracts', contracts);
   }
 
-  createContractFromQuote(quote: Quote): Contract {
-    const contracts = this.getContracts();
+  async createContractFromQuote(quote: Quote): Promise<Contract> {
+    const contracts = this.load<Contract>('contracts', []);
     const existing = contracts.find(c => c.quoteId === quote.id);
     if (existing) return existing;
 
-    const clients = this.getClients();
+    const clients = this.load<Client>('clients', []);
     const client = clients.find(c => c.id === quote.clientId);
     const clientName = client ? client.name : 'Client';
     const clientCompany = client?.companyName || '';
     const clientTaxId = client?.taxId || '';
 
     // Apply template
-    const templates = this.getContractTemplates();
+    const templates = this.load<ContractTemplate>('contract_templates', defaultContractTemplates);
     const template = templates[0]; // standard web template
 
     const formatScope = quote.lineItems.map(item => `${item.titleZh} (${item.titleEn})`).join(', ');
@@ -1343,8 +1343,8 @@ class LocalStorageRepository {
     return newContract;
   }
 
-  signContract(contractId: string, signatureName: string): Contract | null {
-    const contracts = this.getContracts();
+  async signContract(contractId: string, signatureName: string): Promise<Contract | null> {
+    const contracts = this.load<Contract>('contracts', []);
     const idx = contracts.findIndex(c => c.id === contractId);
     if (idx === -1) return null;
 
@@ -1356,7 +1356,7 @@ class LocalStorageRepository {
     this.saveContracts(contracts);
 
     // Also update corresponding Quote status
-    const quotes = this.getQuotes();
+    const quotes = this.load<Quote>('quotes', []);
     const qIdx = quotes.findIndex(q => q.id === contracts[idx].quoteId);
     if (qIdx !== -1) {
       quotes[qIdx].status = 'accepted';
@@ -1379,14 +1379,14 @@ class LocalStorageRepository {
   }
 
   // 9. PAYMENTS
-  getPayments(): Payment[] {
+  async getPayments(): Promise<Payment[]> {
     return this.load<Payment>('payments', []);
   }
   savePayments(payments: Payment[]): void {
     this.save('payments', payments);
   }
-  createPayment(payment: Omit<Payment, 'id' | 'paymentNumber' | 'createdAt'>): Payment {
-    const payments = this.getPayments();
+  async createPayment(payment: Omit<Payment, 'id' | 'paymentNumber' | 'createdAt'>): Promise<Payment> {
+    const payments = this.load<Payment>('payments', []);
     const paymentNumber = `P-${new Date().getFullYear()}${(payments.length + 1).toString().padStart(4, '0')}`;
     const newPayment: Payment = {
       ...payment,
@@ -1401,7 +1401,7 @@ class LocalStorageRepository {
   }
 
   completePayment(paymentId: string, provider: Payment['provider'], stripeSessionId?: string): Payment | null {
-    const payments = this.getPayments();
+    const payments = this.load<Payment>('payments', []);
     const idx = payments.findIndex(p => p.id === paymentId);
     if (idx === -1) return null;
 
@@ -1413,7 +1413,7 @@ class LocalStorageRepository {
 
     // Update contract status
     if (payments[idx].contractId) {
-      const contracts = this.getContracts();
+      const contracts = this.load<Contract>('contracts', []);
       const cIdx = contracts.findIndex(c => c.id === payments[idx].contractId);
       if (cIdx !== -1) {
         contracts[cIdx].status = 'deposit_paid';
@@ -1427,14 +1427,14 @@ class LocalStorageRepository {
   }
 
   // 10. WAITLIST
-  getWaitlist(): Waitlist[] {
+  async getWaitlist(): Promise<Waitlist[]> {
     return this.load<Waitlist>('waitlist', []);
   }
   saveWaitlist(items: Waitlist[]): void {
     this.save('waitlist', items);
   }
-  createWaitlist(item: Omit<Waitlist, 'id' | 'createdAt' | 'status'>): Waitlist {
-    const list = this.getWaitlist();
+  async createWaitlist(item: Omit<Waitlist, 'id' | 'createdAt' | 'status'>): Promise<Waitlist> {
+    const list = this.load<Waitlist>('waitlist', []);
     const newItem: Waitlist = {
       ...item,
       id: `wait-${generateId()}`,
@@ -1448,7 +1448,7 @@ class LocalStorageRepository {
   }
 
   // 11. BILLING SETTINGS
-  getBillingSettings(): BillingSettings {
+  async getBillingSettings(): Promise<BillingSettings> {
     return this.loadObject<BillingSettings>('billing_settings', defaultBillingSettings);
   }
   saveBillingSettings(settings: BillingSettings): void {
@@ -1457,7 +1457,7 @@ class LocalStorageRepository {
   }
 
   // 12. SITE SETTINGS
-  getSiteSettings(): SiteSettings {
+  async getSiteSettings(): Promise<SiteSettings> {
     return this.loadObject<SiteSettings>('site_settings', defaultSiteSettings);
   }
   saveSiteSettings(settings: SiteSettings): void {
@@ -1466,8 +1466,8 @@ class LocalStorageRepository {
   }
 
   // 13. ADDITIONAL CRUD FOR SITE OS CONSOLE
-  createProject(project: Project): Project {
-    const projects = this.getProjects();
+  async createProject(project: Project): Promise<Project> {
+    const projects = this.load<Project>('projects', defaultProjects);
     project.id = project.id || `proj-${generateId()}`;
     project.createdAt = project.createdAt || new Date().toISOString();
     project.updatedAt = project.updatedAt || new Date().toISOString();
@@ -1477,8 +1477,8 @@ class LocalStorageRepository {
     return project;
   }
 
-  updateProject(id: string, updates: Partial<Project>): Project | null {
-    const projects = this.getProjects();
+  async updateProject(id: string, updates: Partial<Project>): Promise<Project | null> {
+    const projects = this.load<Project>('projects', defaultProjects);
     const idx = projects.findIndex(p => p.id === id);
     if (idx === -1) return null;
     projects[idx] = { ...projects[idx], ...updates, updatedAt: new Date().toISOString() };
@@ -1487,15 +1487,15 @@ class LocalStorageRepository {
     return projects[idx];
   }
 
-  deleteProject(id: string): void {
-    const projects = this.getProjects();
+  async deleteProject(id: string): Promise<void> {
+    const projects = this.load<Project>('projects', defaultProjects);
     const filtered = projects.filter(p => p.id !== id);
     this.saveProjects(filtered);
     this.logAction('admin', 'delete_project', 'projects', id);
   }
 
-  createService(service: Service): Service {
-    const services = this.getServices();
+  async createService(service: Service): Promise<Service> {
+    const services = this.load<Service>('services', defaultServices);
     service.id = service.id || `srv-${generateId()}`;
     service.createdAt = service.createdAt || new Date().toISOString();
     service.updatedAt = service.updatedAt || new Date().toISOString();
@@ -1505,8 +1505,8 @@ class LocalStorageRepository {
     return service;
   }
 
-  updateService(id: string, updates: Partial<Service>): Service | null {
-    const services = this.getServices();
+  async updateService(id: string, updates: Partial<Service>): Promise<Service | null> {
+    const services = this.load<Service>('services', defaultServices);
     const idx = services.findIndex(s => s.id === id);
     if (idx === -1) return null;
     services[idx] = { ...services[idx], ...updates, updatedAt: new Date().toISOString() };
@@ -1515,8 +1515,8 @@ class LocalStorageRepository {
     return services[idx];
   }
 
-  updatePaymentStatus(id: string, status: Payment['status']): Payment | null {
-    const payments = this.getPayments();
+  async updatePaymentStatus(id: string, status: Payment['status']): Promise<Payment | null> {
+    const payments = this.load<Payment>('payments', []);
     const idx = payments.findIndex(p => p.id === id);
     if (idx === -1) return null;
     payments[idx].status = status;
@@ -1526,8 +1526,8 @@ class LocalStorageRepository {
     return payments[idx];
   }
 
-  createContract(contract: Omit<Contract, 'id' | 'createdAt' | 'updatedAt'>): Contract {
-    const contracts = this.getContracts();
+  async createContract(contract: Omit<Contract, 'id' | 'createdAt' | 'updatedAt'>): Promise<Contract> {
+    const contracts = this.load<Contract>('contracts', []);
     const newContract: Contract = {
       ...contract,
       id: `ctr-${generateId()}`,
@@ -1540,8 +1540,8 @@ class LocalStorageRepository {
     return newContract;
   }
 
-  updateContractStatus(id: string, status: Contract['status']): Contract | null {
-    const contracts = this.getContracts();
+  async updateContractStatus(id: string, status: Contract['status']): Promise<Contract | null> {
+    const contracts = this.load<Contract>('contracts', []);
     const idx = contracts.findIndex(c => c.id === id);
     if (idx === -1) return null;
     contracts[idx].status = status;
@@ -1552,7 +1552,7 @@ class LocalStorageRepository {
   }
 
   // 14. AUDIT LOGS
-  getAuditLogs(): AuditLog[] {
+  async getAuditLogs(): Promise<AuditLog[]> {
     return this.load<AuditLog>('audit_logs', []);
   }
   logAction(actor: string, action: string, entityType: string, entityId: string, before?: any, after?: any): void {
@@ -1573,4 +1573,14 @@ class LocalStorageRepository {
   }
 }
 
-export const repository = new LocalStorageRepository();
+// ─── Smart repository selector ───────────────────────────────────────────────
+// Uses Supabase when env vars are present, falls back to LocalStorage otherwise
+
+import { isSupabaseEnabled } from '../supabase/client';
+import { SupabaseRepository } from '../supabase/repository';
+
+const localRepo = new LocalStorageRepository();
+const supabaseRepo = isSupabaseEnabled ? new SupabaseRepository() : null;
+
+export const repository = supabaseRepo ?? localRepo;
+export const isUsingSupabase = !!supabaseRepo;
