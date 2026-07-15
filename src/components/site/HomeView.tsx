@@ -18,7 +18,8 @@ import {
   Terminal,
   FileText,
   CreditCard,
-  MessageSquare
+  MessageSquare,
+  ExternalLink
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -310,16 +311,17 @@ export default function HomeView({ onNavigate, siteSettings }: HomeViewProps) {
                 className="group cursor-pointer border border-[var(--border)] rounded-sm bg-[var(--bg-elevated)] overflow-hidden shadow-sm hover:border-[var(--accent)]/40 hover:shadow-md transition-all duration-300 flex flex-col justify-between interactive-card"
               >
                 <div>
-                  {/* Decorative Header styled like dynamic canvas */}
-                  <div className={`h-24 relative p-4 flex items-end overflow-hidden border-b border-[var(--border)] ${
+                  <div className={`h-36 relative flex items-end overflow-hidden border-b border-[var(--border)] ${
+                    project.coverImageUrl ? 'bg-black' :
                     project.coverStyle === 'purple-glow' ? 'bg-gradient-to-br from-indigo-950 to-neutral-900' :
                     project.coverStyle === 'emerald-grid' ? 'bg-gradient-to-br from-zinc-900 to-neutral-950' :
                     project.coverStyle === 'blue-nodes' ? 'bg-gradient-to-br from-blue-950/40 to-neutral-900' :
                     project.coverStyle === 'titanium-metal' ? 'bg-gradient-to-br from-stone-900 to-stone-950' :
                     'bg-gradient-to-br from-neutral-900 to-zinc-950'
                   }`}>
-                    {/* Tiny decorative tag */}
-                    <span className="text-[9px] font-mono tracking-widest font-bold uppercase text-white/60 bg-white/10 px-2 py-0.5 rounded">
+                    {project.coverImageUrl && <img src={project.coverImageUrl} alt={project.titleZh} className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" loading="lazy" />}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                    <span className="relative z-10 m-4 text-[9px] font-mono tracking-widest font-bold uppercase text-white/80 bg-black/35 px-2 py-0.5 rounded backdrop-blur-sm">
                       {project.category}
                     </span>
                   </div>
@@ -334,7 +336,7 @@ export default function HomeView({ onNavigate, siteSettings }: HomeViewProps) {
                   </div>
                 </div>
 
-                <div className="px-6 pb-6 pt-2">
+                <div className="px-6 pb-6 pt-2 space-y-4">
                   <div className="flex flex-wrap gap-1.5">
                     {project.techStack.slice(0, 3).map((tech) => (
                       <span key={tech} className="text-[9px] font-mono bg-[var(--border-subtle)] text-[var(--text-secondary)] px-2 py-0.5 border border-[var(--border)]">
@@ -345,6 +347,7 @@ export default function HomeView({ onNavigate, siteSettings }: HomeViewProps) {
                       <span className="text-[9px] font-mono text-[var(--text-secondary)]">+{project.techStack.length - 3}</span>
                     )}
                   </div>
+                  {project.projectUrl && <a href={project.projectUrl} target={project.openInNewTab === false ? '_self' : '_blank'} rel="noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center justify-between border-t border-[var(--border)] pt-3 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]"><span>{lang === 'zh' ? project.ctaLabelZh || '瀏覽專案' : project.ctaLabelEn || 'View project'}</span><ExternalLink size={12} /></a>}
                 </div>
               </div>
             ))}

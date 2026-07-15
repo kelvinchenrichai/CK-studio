@@ -19,8 +19,10 @@ import {
   BillingSettings,
   SiteSettings,
   Waitlist,
-  AuditLog
+  AuditLog,
+  PublicWorkspace
 } from '../../types';
+import { renderContractTemplate } from '../contracts';
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -1140,6 +1142,32 @@ class LocalStorageRepository {
     this.save('templates', templates);
   }
 
+  async createContractTemplate(template: Omit<ContractTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<ContractTemplate> {
+    const templates = this.load<ContractTemplate>('templates', defaultContractTemplates);
+    const created: ContractTemplate = {
+      ...template,
+      id: `tmpl-${generateId()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    templates.push(created);
+    this.saveContractTemplates(templates);
+    return created;
+  }
+
+  async updateContractTemplate(id: string, updates: Partial<ContractTemplate>): Promise<ContractTemplate | null> {
+    const templates = this.load<ContractTemplate>('templates', defaultContractTemplates);
+    const index = templates.findIndex((item) => item.id === id);
+    if (index === -1) return null;
+    templates[index] = { ...templates[index], ...updates, updatedAt: new Date().toISOString() };
+    this.saveContractTemplates(templates);
+    return templates[index];
+  }
+
+  async deleteContractTemplate(id: string): Promise<void> {
+    this.saveContractTemplates(this.load<ContractTemplate>('templates', defaultContractTemplates).filter((item) => item.id !== id));
+  }
+
   // 6. CLIENTS CRM
   async getClients(): Promise<Client[]> {
     return this.load<Client>('clients', []);
@@ -1231,6 +1259,7 @@ class LocalStorageRepository {
       quoteNumber,
       clientId: quoteData.clientId,
       selectedPlanId: quoteData.selectedPlanId,
+      contractTemplateId: quoteData.contractTemplateId,
       customTitleZh: quoteData.customTitleZh,
       customTitleEn: quoteData.customTitleEn,
       subtotal: quoteData.subtotal,
@@ -1258,6 +1287,30 @@ class LocalStorageRepository {
     return newQuote;
   }
 
+
+  async updateQuote(id: string, updates: Partial<Quote>): Promise<Quote | null> {
+    const quotes = this.load<Quote>('quotes', []);
+    const index = quotes.findIndex((item) => item.id === id);
+    if (index === -1) return null;
+    const lineItems = updates.lineItems
+      ? updates.lineItems.map((item, itemIndex) => ({
+          ...item,
+          id: item.id || `item-${generateId()}-${itemIndex}`,
+          quoteId: id,
+        }))
+      : quotes[index].lineItems;
+    quotes[index] = { ...quotes[index], ...updates, lineItems, updatedAt: new Date().toISOString() };
+    this.saveQuotes(quotes);
+    this.logAction('admin', 'update_quote', 'quotes', id);
+    return quotes[index];
+  }
+
+  async deleteQuote(id: string): Promise<void> {
+    this.saveQuotes(this.load<Quote>('quotes', []).filter((item) => item.id !== id));
+    this.saveContracts(this.load<Contract>('contracts', []).filter((item) => item.quoteId !== id));
+    this.logAction('admin', 'delete_quote', 'quotes', id);
+  }
+
   async updateQuoteStatus(quoteId: string, status: Quote['status']): Promise<Quote | null> {
     const quotes = this.load<Quote>('quotes', []);
     const idx = quotes.findIndex(q => q.id === quoteId);
@@ -1282,75 +1335,44 @@ class LocalStorageRepository {
     this.save('contracts', contracts);
   }
 
-  async createContractFromQuote(quote: Quote): Promise<Contract> {
+  async createContractFromQuote(quote: Quote, templateId?: string): Promise<Contract> {
     const contracts = this.load<Contract>('contracts', []);
-    const existing = contracts.find(c => c.quoteId === quote.id);
+    const existing = contracts.find((item) => item.quoteId === quote.id);
     if (existing) return existing;
 
-    const clients = this.load<Client>('clients', []);
-    const client = clients.find(c => c.id === quote.clientId);
-    const clientName = client ? client.name : 'Client';
-    const clientCompany = client?.companyName || '';
-    const clientTaxId = client?.taxId || '';
+    const client = this.load<Client>('clients', []).find((item) => item.id === quote.clientId);
+    const templates = this.load<ContractTemplate>('templates', defaultContractTemplates);
+    const template = templates.find((item) => item.id === (templateId || quote.contractTemplateId))
+      ?? templates.find((item) => item.status === 'active')
+      ?? templates[0];
+    if (!template) throw new Error('請先建立至少一個合約範本');
+    const rendered = renderContractTemplate(template, quote, client);
 
-    // Apply template
-    const templates = this.load<ContractTemplate>('contract_templates', defaultContractTemplates);
-    const template = templates[0]; // standard web template
-
-    const formatScope = quote.lineItems.map(item => `${item.titleZh} (${item.titleEn})`).join(', ');
-
-    let contentZh = template.contentZh
-      .replace(/{{clientName}}/g, clientName)
-      .replace(/{{companyName}}/g, clientCompany)
-      .replace(/{{taxId}}/g, clientTaxId || 'N/A')
-      .replace(/{{projectName}}/g, quote.customTitleZh)
-      .replace(/{{serviceScope}}/g, formatScope)
-      .replace(/{{deliveryDays}}/g, '10') // placeholder or add-on configured
-      .replace(/{{revisionCount}}/g, '2')
-      .replace(/{{totalAmount}}/g, quote.total.toLocaleString())
-      .replace(/{{depositPercent}}/g, quote.depositPercent.toString())
-      .replace(/{{depositAmount}}/g, quote.depositAmount.toLocaleString())
-      .replace(/{{balanceAmount}}/g, quote.balanceAmount.toLocaleString());
-
-    let contentEn = template.contentEn
-      .replace(/{{clientName}}/g, clientName)
-      .replace(/{{companyName}}/g, clientCompany)
-      .replace(/{{taxId}}/g, clientTaxId || 'N/A')
-      .replace(/{{projectName}}/g, quote.customTitleEn)
-      .replace(/{{serviceScope}}/g, formatScope)
-      .replace(/{{deliveryDays}}/g, '10')
-      .replace(/{{revisionCount}}/g, '2')
-      .replace(/{{totalAmount}}/g, quote.total.toLocaleString())
-      .replace(/{{depositPercent}}/g, quote.depositPercent.toString())
-      .replace(/{{depositAmount}}/g, quote.depositAmount.toLocaleString())
-      .replace(/{{balanceAmount}}/g, quote.balanceAmount.toLocaleString());
-
-    const contractNumber = `C-${new Date().getFullYear()}${(contracts.length + 1).toString().padStart(4, '0')}`;
-    const newContract: Contract = {
+    const contract: Contract = {
       id: `ctr-${generateId()}`,
-      contractNumber,
+      contractNumber: `C-${new Date().getFullYear()}-${Date.now().toString().slice(-8)}`,
       quoteId: quote.id,
       clientId: quote.clientId,
       templateId: template.id,
-      projectName: quote.customTitleZh,
-      projectDescription: quote.customTitleEn,
-      serviceScopeZh: formatScope,
-      serviceScopeEn: formatScope,
+      projectName: quote.customTitleZh || quote.customTitleEn || '新專案',
+      projectDescription: quote.notesZh || quote.notesEn || '',
+      serviceScopeZh: rendered.serviceScopeZh,
+      serviceScopeEn: rendered.serviceScopeEn,
       amount: quote.total,
       depositAmount: quote.depositAmount,
       balanceAmount: quote.balanceAmount,
       status: 'sent',
-      contentZh,
-      contentEn,
-      publicToken: quote.publicToken, // use matching token for easy single client view access
+      contentZh: rendered.contentZh,
+      contentEn: rendered.contentEn,
+      publicToken: quote.publicToken,
+      signatureConsent: false,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
-
-    contracts.push(newContract);
+    contracts.push(contract);
     this.saveContracts(contracts);
-    this.logAction('system', 'generate_contract_from_quote', 'contracts', newContract.id);
-    return newContract;
+    this.logAction('admin', 'create_contract_from_quote', 'contracts', contract.id);
+    return contract;
   }
 
   async signContract(contractId: string, signatureName: string): Promise<Contract | null> {
@@ -1504,6 +1526,20 @@ class LocalStorageRepository {
     this.logAction('admin', 'delete_project', 'projects', id);
   }
 
+
+  async uploadProjectImage(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('圖片讀取失敗'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async deleteProjectImage(): Promise<void> {
+    return;
+  }
+
   async createService(service: Service): Promise<Service> {
     const services = this.load<Service>('services', defaultServices);
     service.id = service.id || `srv-${generateId()}`;
@@ -1548,6 +1584,63 @@ class LocalStorageRepository {
     this.saveContracts(contracts);
     this.logAction('admin', 'create_contract', 'contracts', newContract.id);
     return newContract;
+  }
+
+  async updateContract(id: string, updates: Partial<Contract>): Promise<Contract | null> {
+    const contracts = this.load<Contract>('contracts', []);
+    const index = contracts.findIndex((item) => item.id === id);
+    if (index === -1) return null;
+    contracts[index] = { ...contracts[index], ...updates, updatedAt: new Date().toISOString() };
+    this.saveContracts(contracts);
+    this.logAction('admin', 'update_contract', 'contracts', id);
+    return contracts[index];
+  }
+
+  async deleteContract(id: string): Promise<void> {
+    this.saveContracts(this.load<Contract>('contracts', []).filter((item) => item.id !== id));
+    this.logAction('admin', 'delete_contract', 'contracts', id);
+  }
+
+  async getPublicWorkspace(token: string): Promise<PublicWorkspace | null> {
+    const quotes = this.load<Quote>('quotes', []);
+    const contracts = this.load<Contract>('contracts', []);
+    const quote = quotes.find((item) => item.publicToken === token)
+      ?? quotes.find((item) => contracts.some((contract) => contract.publicToken === token && contract.quoteId === item.id))
+      ?? null;
+    const contract = contracts.find((item) => item.publicToken === token || item.quoteId === quote?.id) ?? null;
+    if (!quote && !contract) return null;
+    const clientId = quote?.clientId || contract?.clientId;
+    const client = this.load<Client>('clients', []).find((item) => item.id === clientId) ?? null;
+    return {
+      quote,
+      contract,
+      client: client ? {
+        id: client.id,
+        name: client.name,
+        companyName: client.companyName,
+        contactName: client.contactName,
+        email: client.email,
+      } : null,
+    };
+  }
+
+  async acceptPublicQuote(token: string): Promise<PublicWorkspace> {
+    const workspace = await this.getPublicWorkspace(token);
+    if (!workspace?.quote) throw new Error('找不到報價單');
+    await this.updateQuoteStatus(workspace.quote.id, 'accepted');
+    await this.createContractFromQuote({ ...workspace.quote, status: 'accepted' });
+    const refreshed = await this.getPublicWorkspace(token);
+    if (!refreshed) throw new Error('報價單更新失敗');
+    return refreshed;
+  }
+
+  async signPublicContract(token: string, signatureName: string): Promise<PublicWorkspace> {
+    const workspace = await this.getPublicWorkspace(token);
+    if (!workspace?.contract) throw new Error('找不到合約');
+    await this.signContract(workspace.contract.id, signatureName);
+    const refreshed = await this.getPublicWorkspace(token);
+    if (!refreshed) throw new Error('合約更新失敗');
+    return refreshed;
   }
 
   async updateContractStatus(id: string, status: Contract['status']): Promise<Contract | null> {

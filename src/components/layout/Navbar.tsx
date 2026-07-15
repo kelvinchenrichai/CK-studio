@@ -133,30 +133,13 @@ export default function Navbar({ currentPath, onNavigate, isAdmin, onLogoutAdmin
               <span>{lang === 'zh' ? 'EN' : '繁中'}</span>
             </button>
 
-            {/* Admin Portal Link */}
-            {isAdmin ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleItemClick('/admin')}
-                  className="px-3.5 py-1.5 border border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent-glow)] rounded-md text-xs font-mono font-bold transition-colors"
-                  id="nav-admin-dashboard"
-                >
-                  {t.nav.admin}
-                </button>
-                <button
-                  onClick={onLogoutAdmin}
-                  className="px-2.5 py-1.5 border border-red-200 dark:border-red-950 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-md text-xs font-mono font-bold transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : (
+            {/* 後台入口不顯示在公開導覽列；只有已登入且位於 /admin 時顯示登出。 */}
+            {isAdmin && currentPath === '/admin' && (
               <button
-                onClick={() => handleItemClick('/login')}
-                className="px-3.5 py-1.5 border border-[var(--border)] hover:bg-[var(--border-subtle)] text-xs font-mono rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                id="nav-admin-login"
+                onClick={onLogoutAdmin}
+                className="px-2.5 py-1.5 border border-red-200 dark:border-red-950 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-md text-xs font-mono font-bold transition-colors"
               >
-                {t.nav.admin}
+                登出
               </button>
             )}
 
@@ -214,12 +197,12 @@ export default function Navbar({ currentPath, onNavigate, isAdmin, onLogoutAdmin
             ))}
           </div>
           <div className="flex flex-col gap-3 pt-2">
-            {isAdmin && (
+            {isAdmin && currentPath === '/admin' && (
               <button
-                onClick={() => handleItemClick('/admin')}
-                className="w-full text-center py-3 border border-amber-500 text-amber-500 font-mono text-xs font-bold"
+                onClick={onLogoutAdmin}
+                className="w-full text-center py-3 border border-red-500/40 text-red-400 font-mono text-xs font-bold"
               >
-                {t.nav.admin}
+                登出後台
               </button>
             )}
             <button

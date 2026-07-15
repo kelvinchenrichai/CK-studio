@@ -21,6 +21,12 @@ export interface Project {
   status: 'active' | 'coming_soon' | 'beta' | 'internal' | 'paused' | 'archived';
   isFeatured: boolean;
   coverStyle: ProjectCoverStyle;
+  coverImageUrl?: string;
+  galleryImageUrls?: string[];
+  projectUrl?: string;
+  ctaLabelZh?: string;
+  ctaLabelEn?: string;
+  openInNewTab?: boolean;
   sortOrder: number;
   problemZh?: string;
   problemEn?: string;
@@ -200,6 +206,7 @@ export interface Quote {
   quoteNumber: string;
   clientId: string;
   selectedPlanId?: string;
+  contractTemplateId?: string;
   customTitleZh: string;
   customTitleEn: string;
   subtotal: number;
@@ -239,6 +246,8 @@ export interface Contract {
   contentEn: string;
   publicToken: string;
   signatureName?: string;
+  signatureConsent?: boolean;
+  signatureUserAgent?: string;
   signedAt?: string;
   acceptedAt?: string;
   createdAt: string;
@@ -257,6 +266,13 @@ export interface ContractTemplate {
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+
+export interface PublicWorkspace {
+  quote: Quote | null;
+  contract: Contract | null;
+  client: Pick<Client, 'id' | 'name' | 'companyName' | 'contactName' | 'email'> | null;
 }
 
 export interface Payment {

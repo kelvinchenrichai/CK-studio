@@ -3,8 +3,9 @@ import {
   Project, Service, ServiceCategory, PricingPlan, AddOn,
   Client, Inquiry, Quote, QuoteLineItem, Contract,
   ContractTemplate, Payment, BillingSettings, SiteSettings,
-  Waitlist, AuditLog
+  Waitlist, AuditLog, PublicWorkspace
 } from '../../types';
+import { renderContractTemplate } from '../contracts';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,11 @@ function mapProject(r: any): Project {
     techStack: r.tech_stack ?? [],
     featuresZh: r.features_zh ?? [], featuresEn: r.features_en ?? [],
     status: r.status, isFeatured: r.is_featured,
-    coverStyle: r.cover_style, sortOrder: r.sort_order,
+    coverStyle: r.cover_style,
+    coverImageUrl: r.cover_image_url ?? '', galleryImageUrls: r.gallery_image_urls ?? [],
+    projectUrl: r.project_url ?? '', ctaLabelZh: r.cta_label_zh ?? '瀏覽專案',
+    ctaLabelEn: r.cta_label_en ?? 'View project', openInNewTab: r.open_in_new_tab ?? true,
+    sortOrder: r.sort_order,
     problemZh: r.problem_zh, problemEn: r.problem_en,
     solutionZh: r.solution_zh, solutionEn: r.solution_en,
     resultZh: r.result_zh, resultEn: r.result_en,
@@ -136,7 +141,7 @@ function mapInquiry(r: any): Inquiry {
 function mapQuote(r: any, lineItems: QuoteLineItem[] = []): Quote {
   return {
     id: r.id, quoteNumber: r.quote_number, clientId: r.client_id,
-    selectedPlanId: r.selected_plan_id,
+    selectedPlanId: r.selected_plan_id, contractTemplateId: r.contract_template_id,
     customTitleZh: r.custom_title_zh ?? '', customTitleEn: r.custom_title_en ?? '',
     subtotal: r.subtotal, discount: r.discount, tax: r.tax, total: r.total,
     depositPercent: r.deposit_percent, depositAmount: r.deposit_amount,
@@ -166,7 +171,8 @@ function mapContract(r: any): Contract {
     amount: r.amount, depositAmount: r.deposit_amount, balanceAmount: r.balance_amount,
     status: r.status, contentZh: r.content_zh ?? '', contentEn: r.content_en ?? '',
     publicToken: r.public_token,
-    signatureName: r.signature_name, signedAt: r.signed_at, acceptedAt: r.accepted_at,
+    signatureName: r.signature_name, signatureConsent: r.signature_consent ?? false,
+    signatureUserAgent: r.signature_user_agent, signedAt: r.signed_at, acceptedAt: r.accepted_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -249,6 +255,9 @@ export class SupabaseRepository {
       long_description_zh: p.longDescriptionZh, long_description_en: p.longDescriptionEn,
       tech_stack: p.techStack, features_zh: p.featuresZh, features_en: p.featuresEn,
       status: p.status, is_featured: p.isFeatured, cover_style: p.coverStyle,
+      cover_image_url: p.coverImageUrl || null, gallery_image_urls: p.galleryImageUrls ?? [],
+      project_url: p.projectUrl || null, cta_label_zh: p.ctaLabelZh || '瀏覽專案',
+      cta_label_en: p.ctaLabelEn || 'View project', open_in_new_tab: p.openInNewTab ?? true,
       sort_order: p.sortOrder,
       problem_zh: p.problemZh, problem_en: p.problemEn,
       solution_zh: p.solutionZh, solution_en: p.solutionEn,
@@ -272,6 +281,12 @@ export class SupabaseRepository {
     if (p.status !== undefined) updates.status = p.status;
     if (p.isFeatured !== undefined) updates.is_featured = p.isFeatured;
     if (p.coverStyle !== undefined) updates.cover_style = p.coverStyle;
+    if (p.coverImageUrl !== undefined) updates.cover_image_url = p.coverImageUrl || null;
+    if (p.galleryImageUrls !== undefined) updates.gallery_image_urls = p.galleryImageUrls;
+    if (p.projectUrl !== undefined) updates.project_url = p.projectUrl || null;
+    if (p.ctaLabelZh !== undefined) updates.cta_label_zh = p.ctaLabelZh;
+    if (p.ctaLabelEn !== undefined) updates.cta_label_en = p.ctaLabelEn;
+    if (p.openInNewTab !== undefined) updates.open_in_new_tab = p.openInNewTab;
     if (p.sortOrder !== undefined) updates.sort_order = p.sortOrder;
     if (p.category !== undefined) updates.category = p.category;
     if (p.slug !== undefined) updates.slug = p.slug;
@@ -288,6 +303,30 @@ export class SupabaseRepository {
 
   async deleteProject(id: string): Promise<void> {
     const { error } = await this.db.from('projects').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  async uploadProjectImage(file: File, projectId: string): Promise<string> {
+    if (!file.type.startsWith('image/')) throw new Error('僅支援圖片檔案');
+    if (file.size > 10 * 1024 * 1024) throw new Error('圖片不可超過 10MB');
+    const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const path = `${projectId || 'draft'}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const { error } = await this.db.storage.from('project-media').upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type,
+    });
+    if (error) throw error;
+    const { data } = this.db.storage.from('project-media').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  async deleteProjectImage(publicUrl: string): Promise<void> {
+    const marker = '/storage/v1/object/public/project-media/';
+    const index = publicUrl.indexOf(marker);
+    if (index === -1) return;
+    const path = decodeURIComponent(publicUrl.slice(index + marker.length));
+    const { error } = await this.db.storage.from('project-media').remove([path]);
     if (error) throw error;
   }
 
@@ -539,51 +578,98 @@ export class SupabaseRepository {
   async getQuotes(): Promise<Quote[]> {
     const { data, error } = await this.db.from('quotes').select('*').order('created_at', { ascending: false });
     if (error) throw error;
-    const quotes = data ?? [];
-    const result: Quote[] = [];
-    for (const q of quotes) {
-      const { data: items } = await this.db.from('quote_line_items').select('*').eq('quote_id', q.id);
-      result.push(mapQuote(q, (items ?? []).map(mapLineItem)));
+    const ids = (data ?? []).map((row: any) => row.id);
+    const { data: itemRows, error: itemError } = ids.length
+      ? await this.db.from('quote_line_items').select('*').in('quote_id', ids).order('id')
+      : { data: [], error: null } as any;
+    if (itemError) throw itemError;
+    const grouped = new Map<string, QuoteLineItem[]>();
+    for (const row of itemRows ?? []) {
+      const list = grouped.get(row.quote_id) ?? [];
+      list.push(mapLineItem(row));
+      grouped.set(row.quote_id, list);
     }
-    return result;
+    return (data ?? []).map((row: any) => mapQuote(row, grouped.get(row.id) ?? []));
   }
 
   async getQuoteByToken(token: string): Promise<Quote | null> {
-    const { data, error } = await this.db.from('quotes').select('*').eq('public_token', token).single();
-    if (error) return null;
-    const { data: items } = await this.db.from('quote_line_items').select('*').eq('quote_id', data.id);
-    return mapQuote(data, (items ?? []).map(mapLineItem));
+    const workspace = await this.getPublicWorkspace(token);
+    return workspace?.quote ?? null;
   }
 
   async createQuote(q: Omit<Quote, 'id' | 'createdAt' | 'updatedAt'>): Promise<Quote> {
+    const publicToken = q.publicToken || crypto.randomUUID();
     const { data, error } = await this.db.from('quotes').insert({
       quote_number: q.quoteNumber, client_id: q.clientId,
-      selected_plan_id: q.selectedPlanId,
+      selected_plan_id: q.selectedPlanId || null, contract_template_id: q.contractTemplateId || null,
       custom_title_zh: q.customTitleZh, custom_title_en: q.customTitleEn,
       subtotal: q.subtotal, discount: q.discount, tax: q.tax, total: q.total,
       deposit_percent: q.depositPercent, deposit_amount: q.depositAmount,
-      balance_amount: q.balanceAmount, valid_until: q.validUntil,
+      balance_amount: q.balanceAmount, valid_until: q.validUntil || null,
+      public_token: publicToken,
       status: q.status ?? 'draft',
       notes_zh: q.notesZh, notes_en: q.notesEn,
       terms_zh: q.termsZh, terms_en: q.termsEn,
     }).select().single();
     if (error) throw error;
 
-    const lineItems: QuoteLineItem[] = [];
-    for (const item of q.lineItems) {
-      const { data: li, error: liErr } = await this.db.from('quote_line_items').insert({
-        quote_id: data.id, title_zh: item.titleZh, title_en: item.titleEn,
-        description_zh: item.descriptionZh, description_en: item.descriptionEn,
-        quantity: item.quantity, unit_price: item.unitPrice, amount: item.amount, type: item.type,
-      }).select().single();
-      if (!liErr && li) lineItems.push(mapLineItem(li));
+    const rows = q.lineItems.map((item) => ({
+      quote_id: data.id, title_zh: item.titleZh, title_en: item.titleEn,
+      description_zh: item.descriptionZh, description_en: item.descriptionEn,
+      quantity: item.quantity, unit_price: item.unitPrice, amount: item.amount, type: item.type,
+    }));
+    let lineItems: QuoteLineItem[] = [];
+    if (rows.length) {
+      const { data: inserted, error: lineError } = await this.db.from('quote_line_items').insert(rows).select();
+      if (lineError) throw lineError;
+      lineItems = (inserted ?? []).map(mapLineItem);
     }
     return mapQuote(data, lineItems);
   }
 
-  async updateQuoteStatus(id: string, status: Quote['status']): Promise<void> {
-    const { error } = await this.db.from('quotes').update({ status, updated_at: now() }).eq('id', id);
+  async updateQuote(id: string, q: Partial<Quote>): Promise<Quote> {
+    const updates: any = { updated_at: now() };
+    const fieldMap: Record<string, string> = {
+      quoteNumber: 'quote_number', clientId: 'client_id', selectedPlanId: 'selected_plan_id', contractTemplateId: 'contract_template_id',
+      customTitleZh: 'custom_title_zh', customTitleEn: 'custom_title_en',
+      subtotal: 'subtotal', discount: 'discount', tax: 'tax', total: 'total',
+      depositPercent: 'deposit_percent', depositAmount: 'deposit_amount', balanceAmount: 'balance_amount',
+      validUntil: 'valid_until', publicToken: 'public_token', status: 'status',
+      notesZh: 'notes_zh', notesEn: 'notes_en', termsZh: 'terms_zh', termsEn: 'terms_en',
+    };
+    for (const [key, column] of Object.entries(fieldMap)) {
+      if ((q as any)[key] !== undefined) updates[column] = (q as any)[key] || null;
+    }
+    const { data, error } = await this.db.from('quotes').update(updates).eq('id', id).select().single();
     if (error) throw error;
+
+    if (q.lineItems !== undefined) {
+      const { error: deleteError } = await this.db.from('quote_line_items').delete().eq('quote_id', id);
+      if (deleteError) throw deleteError;
+      if (q.lineItems.length) {
+        const { error: insertError } = await this.db.from('quote_line_items').insert(q.lineItems.map((item) => ({
+          quote_id: id, title_zh: item.titleZh, title_en: item.titleEn,
+          description_zh: item.descriptionZh, description_en: item.descriptionEn,
+          quantity: item.quantity, unit_price: item.unitPrice, amount: item.amount, type: item.type,
+        })));
+        if (insertError) throw insertError;
+      }
+    }
+    const refreshed = (await this.getQuotes()).find((item) => item.id === id);
+    if (!refreshed) throw new Error('Quote could not be reloaded');
+    return refreshed;
+  }
+
+  async deleteQuote(id: string): Promise<void> {
+    const { error } = await this.db.from('quotes').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  async updateQuoteStatus(id: string, status: Quote['status']): Promise<Quote | null> {
+    const { data, error } = await this.db.from('quotes').update({ status, updated_at: now() }).eq('id', id).select().single();
+    if (error) throw error;
+    const { data: rows } = await this.db.from('quote_line_items').select('*').eq('quote_id', id);
+    return mapQuote(data, (rows ?? []).map(mapLineItem));
   }
 
   // ── Contracts ─────────────────────────────────────────────────────────────
@@ -595,27 +681,52 @@ export class SupabaseRepository {
   }
 
   async getContractByToken(token: string): Promise<Contract | null> {
-    const { data, error } = await this.db.from('contracts').select('*').eq('public_token', token).single();
-    if (error) return null;
-    return mapContract(data);
+    const workspace = await this.getPublicWorkspace(token);
+    return workspace?.contract ?? null;
   }
 
   async createContract(c: Omit<Contract, 'id' | 'createdAt' | 'updatedAt'>): Promise<Contract> {
     const { data, error } = await this.db.from('contracts').insert({
       contract_number: c.contractNumber, quote_id: c.quoteId, client_id: c.clientId,
-      template_id: c.templateId, project_name: c.projectName,
+      template_id: c.templateId || null, project_name: c.projectName,
       project_description: c.projectDescription,
       service_scope_zh: c.serviceScopeZh, service_scope_en: c.serviceScopeEn,
       amount: c.amount, deposit_amount: c.depositAmount, balance_amount: c.balanceAmount,
       status: c.status ?? 'draft', content_zh: c.contentZh, content_en: c.contentEn,
+      public_token: c.publicToken || crypto.randomUUID(),
+      signature_name: c.signatureName || null,
+      signature_consent: c.signatureConsent ?? false,
     }).select().single();
     if (error) throw error;
     return mapContract(data);
   }
 
+  async updateContract(id: string, c: Partial<Contract>): Promise<Contract> {
+    const updates: any = { updated_at: now() };
+    const fieldMap: Record<string, string> = {
+      contractNumber: 'contract_number', quoteId: 'quote_id', clientId: 'client_id',
+      templateId: 'template_id', projectName: 'project_name', projectDescription: 'project_description',
+      serviceScopeZh: 'service_scope_zh', serviceScopeEn: 'service_scope_en',
+      amount: 'amount', depositAmount: 'deposit_amount', balanceAmount: 'balance_amount',
+      status: 'status', contentZh: 'content_zh', contentEn: 'content_en', publicToken: 'public_token',
+    };
+    for (const [key, column] of Object.entries(fieldMap)) {
+      if ((c as any)[key] !== undefined) updates[column] = (c as any)[key] || null;
+    }
+    const { data, error } = await this.db.from('contracts').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return mapContract(data);
+  }
+
+  async deleteContract(id: string): Promise<void> {
+    const { error } = await this.db.from('contracts').delete().eq('id', id);
+    if (error) throw error;
+  }
+
   async signContract(id: string, signatureName: string): Promise<Contract> {
     const { data, error } = await this.db.from('contracts').update({
       signature_name: signatureName,
+      signature_consent: true,
       signed_at: now(),
       accepted_at: now(),
       status: 'signed',
@@ -625,9 +736,10 @@ export class SupabaseRepository {
     return mapContract(data);
   }
 
-  async updateContractStatus(id: string, status: Contract['status']): Promise<void> {
-    const { error } = await this.db.from('contracts').update({ status, updated_at: now() }).eq('id', id);
+  async updateContractStatus(id: string, status: Contract['status']): Promise<Contract | null> {
+    const { data, error } = await this.db.from('contracts').update({ status, updated_at: now() }).eq('id', id).select().single();
     if (error) throw error;
+    return mapContract(data);
   }
 
   // ── Contract Templates ────────────────────────────────────────────────────
@@ -636,6 +748,60 @@ export class SupabaseRepository {
     const { data, error } = await this.db.from('contract_templates').select('*').order('name_zh');
     if (error) throw error;
     return (data ?? []).map(mapContractTemplate);
+  }
+
+  async createContractTemplate(template: Omit<ContractTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<ContractTemplate> {
+    const { data, error } = await this.db.from('contract_templates').insert({
+      id: `tmpl-${generateId()}`, name_zh: template.nameZh, name_en: template.nameEn,
+      category: template.category, content_zh: template.contentZh, content_en: template.contentEn,
+      variables: template.variables, status: template.status, version: template.version,
+    }).select().single();
+    if (error) throw error;
+    return mapContractTemplate(data);
+  }
+
+  async updateContractTemplate(id: string, template: Partial<ContractTemplate>): Promise<ContractTemplate> {
+    const updates: any = { updated_at: now() };
+    const fieldMap: Record<string, string> = {
+      nameZh: 'name_zh', nameEn: 'name_en', category: 'category', contentZh: 'content_zh',
+      contentEn: 'content_en', variables: 'variables', status: 'status', version: 'version',
+    };
+    for (const [key, column] of Object.entries(fieldMap)) {
+      if ((template as any)[key] !== undefined) updates[column] = (template as any)[key];
+    }
+    const { data, error } = await this.db.from('contract_templates').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return mapContractTemplate(data);
+  }
+
+  async deleteContractTemplate(id: string): Promise<void> {
+    const { error } = await this.db.from('contract_templates').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  // ── Secure public quote/contract workspace ────────────────────────────────
+
+  async getPublicWorkspace(token: string): Promise<PublicWorkspace | null> {
+    const { data, error } = await this.db.rpc('get_public_workspace', { p_token: token });
+    if (error) throw error;
+    if (!data) return null;
+    return data as PublicWorkspace;
+  }
+
+  async acceptPublicQuote(token: string): Promise<PublicWorkspace> {
+    const { data, error } = await this.db.rpc('accept_public_quote', { p_token: token });
+    if (error) throw error;
+    return data as PublicWorkspace;
+  }
+
+  async signPublicContract(token: string, signatureName: string): Promise<PublicWorkspace> {
+    const { data, error } = await this.db.rpc('sign_public_contract', {
+      p_token: token,
+      p_signature_name: signatureName,
+      p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    });
+    if (error) throw error;
+    return data as PublicWorkspace;
   }
 
   // ── Payments ──────────────────────────────────────────────────────────────
@@ -756,25 +922,38 @@ export class SupabaseRepository {
     }));
   }
 
-  // Creates a contract from an accepted quote (mirrors LocalStorage behaviour)
-  async createContractFromQuote(quote: Quote): Promise<Contract> {
-    const contractNumber = `CON-${Date.now()}`;
+  // Creates a contract from a quote using the selected template.
+  async createContractFromQuote(quote: Quote, templateId?: string): Promise<Contract> {
+    const existing = (await this.getContracts()).find((item) => item.quoteId === quote.id);
+    if (existing) return existing;
+
+    const [templates, client] = await Promise.all([
+      this.getContractTemplates(),
+      this.getClientById(quote.clientId),
+    ]);
+    const template = templates.find((item) => item.id === (templateId || quote.contractTemplateId))
+      ?? templates.find((item) => item.status === 'active')
+      ?? templates[0];
+    if (!template) throw new Error('請先建立至少一個合約範本');
+
+    const rendered = renderContractTemplate(template, quote, client ?? undefined);
     return this.createContract({
-      contractNumber,
+      contractNumber: `C-${new Date().getFullYear()}-${Date.now().toString().slice(-8)}`,
       quoteId: quote.id,
       clientId: quote.clientId,
-      templateId: 'tmpl-web',
-      projectName: quote.customTitleZh || quote.customTitleEn || 'New Project',
-      projectDescription: '',
-      serviceScopeZh: quote.notesZh || '',
-      serviceScopeEn: quote.notesEn || '',
+      templateId: template.id,
+      projectName: quote.customTitleZh || quote.customTitleEn || '新專案',
+      projectDescription: quote.notesZh || quote.notesEn || '',
+      serviceScopeZh: rendered.serviceScopeZh,
+      serviceScopeEn: rendered.serviceScopeEn,
       amount: quote.total,
       depositAmount: quote.depositAmount,
       balanceAmount: quote.balanceAmount,
-      status: 'draft',
-      contentZh: '',
-      contentEn: '',
-      publicToken: Math.random().toString(36).substring(2),
+      status: 'sent',
+      contentZh: rendered.contentZh,
+      contentEn: rendered.contentEn,
+      publicToken: quote.publicToken,
+      signatureConsent: false,
     });
   }
 

@@ -16,6 +16,8 @@ import {
   Eye,
   EyeOff,
   FileText,
+  FileSignature,
+  Image as ImageIcon,
   FolderKanban,
   Layers3,
   Loader2,
@@ -28,11 +30,13 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
 import { repository, isUsingSupabase } from '../../lib/repositories';
 import { supabase } from '../../lib/supabase/client';
+import QuoteContractManager from './QuoteContractManager';
 import {
   Client,
   Inquiry,
@@ -51,7 +55,7 @@ interface AdminPortalProps {
   isLoggedIn: boolean;
 }
 
-type AdminTab = 'dashboard' | 'projects' | 'services' | 'pricing' | 'crm' | 'quotes' | 'payments' | 'settings';
+type AdminTab = 'dashboard' | 'projects' | 'services' | 'pricing' | 'crm' | 'quotes' | 'contracts' | 'payments' | 'settings';
 
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'kelvinchenrichai@gmail.com';
 
@@ -90,6 +94,12 @@ const EMPTY_PROJECT: Project = {
   status: 'active',
   isFeatured: false,
   coverStyle: 'titanium-metal',
+  coverImageUrl: '',
+  galleryImageUrls: [],
+  projectUrl: '',
+  ctaLabelZh: '瀏覽專案',
+  ctaLabelEn: 'View project',
+  openInNewTab: true,
   sortOrder: 0,
   problemZh: '',
   problemEn: '',
@@ -242,6 +252,7 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingPlan, setEditingPlan] = useState<PricingPlan | null>(null);
+  const [uploadingProjectImage, setUploadingProjectImage] = useState(false);
 
   const inputClass = 'w-full rounded-md border border-[var(--border)] bg-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)]';
   const textareaClass = `${inputClass} min-h-24 resize-y`;
@@ -314,6 +325,45 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
 
     setPassword('');
     onLoginSuccess();
+  };
+
+  const handleProjectImageUpload = async (files: FileList | null, kind: 'cover' | 'gallery') => {
+    if (!editingProject || !files?.length) return;
+    const repo = repository as any;
+    if (typeof repo.uploadProjectImage !== 'function') {
+      alert('目前的資料來源不支援圖片上傳。');
+      return;
+    }
+    setUploadingProjectImage(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        uploaded.push(await repo.uploadProjectImage(file, editingProject.id || editingProject.slug || 'draft'));
+      }
+      setEditingProject((current) => current ? {
+        ...current,
+        coverImageUrl: kind === 'cover' ? uploaded[0] : current.coverImageUrl,
+        galleryImageUrls: kind === 'gallery' ? [...(current.galleryImageUrls ?? []), ...uploaded] : current.galleryImageUrls,
+      } : current);
+      flash(kind === 'cover' ? '封面圖片已上傳' : '作品圖片已上傳');
+    } catch (error: any) {
+      alert(error?.message || '圖片上傳失敗');
+    } finally {
+      setUploadingProjectImage(false);
+    }
+  };
+
+  const handleRemoveProjectImage = async (url: string, kind: 'cover' | 'gallery') => {
+    if (!editingProject) return;
+    const repo = repository as any;
+    if (isUsingSupabase && typeof repo.deleteProjectImage === 'function') {
+      try { await repo.deleteProjectImage(url); } catch (error) { console.warn(error); }
+    }
+    setEditingProject({
+      ...editingProject,
+      coverImageUrl: kind === 'cover' ? '' : editingProject.coverImageUrl,
+      galleryImageUrls: kind === 'gallery' ? (editingProject.galleryImageUrls ?? []).filter((item) => item !== url) : editingProject.galleryImageUrls,
+    });
   };
 
   const handleSaveProject = async () => {
@@ -492,6 +542,7 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
     { id: 'pricing', label: '方案管理', icon: <CircleDollarSign size={14} /> },
     { id: 'crm', label: '客戶與詢問', icon: <Users size={14} /> },
     { id: 'quotes', label: '報價單', icon: <FileText size={14} /> },
+    { id: 'contracts', label: '合約', icon: <FileSignature size={14} /> },
     { id: 'payments', label: '付款紀錄', icon: <BriefcaseBusiness size={14} /> },
     { id: 'settings', label: '網站設定', icon: <Settings size={14} /> },
   ];
@@ -589,6 +640,19 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
                   <Field label="英文短說明" full><textarea className={textareaClass} value={editingProject.descriptionEn} onChange={(e) => setEditingProject({ ...editingProject, descriptionEn: e.target.value })} /></Field>
                   <Field label="中文完整介紹" full><textarea className={`${textareaClass} min-h-36`} value={editingProject.longDescriptionZh} onChange={(e) => setEditingProject({ ...editingProject, longDescriptionZh: e.target.value })} /></Field>
                   <Field label="英文完整介紹" full><textarea className={`${textareaClass} min-h-36`} value={editingProject.longDescriptionEn} onChange={(e) => setEditingProject({ ...editingProject, longDescriptionEn: e.target.value })} /></Field>
+                  <div className="md:col-span-2 space-y-3 rounded-lg border border-[var(--border)] p-4">
+                    <div className="flex items-center gap-2"><ImageIcon size={15} className="text-[var(--accent)]" /><h4 className="text-sm font-bold">作品圖片與外部網址</h4></div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field label="專案網址 URL"><input type="url" className={inputClass} value={editingProject.projectUrl || ''} onChange={(e) => setEditingProject({ ...editingProject, projectUrl: e.target.value })} placeholder="https://example.com" /></Field>
+                      <Field label="開啟方式"><select className={inputClass} value={editingProject.openInNewTab === false ? 'same' : 'new'} onChange={(e) => setEditingProject({ ...editingProject, openInNewTab: e.target.value === 'new' })}><option value="new">新分頁開啟</option><option value="same">同分頁開啟</option></select></Field>
+                      <Field label="中文按鈕文字"><input className={inputClass} value={editingProject.ctaLabelZh || ''} onChange={(e) => setEditingProject({ ...editingProject, ctaLabelZh: e.target.value })} /></Field>
+                      <Field label="英文按鈕文字"><input className={inputClass} value={editingProject.ctaLabelEn || ''} onChange={(e) => setEditingProject({ ...editingProject, ctaLabelEn: e.target.value })} /></Field>
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="space-y-2"><span className="block text-xs font-semibold text-[var(--text-secondary)]">封面圖片</span>{editingProject.coverImageUrl ? <div className="relative overflow-hidden rounded-md border border-[var(--border)] bg-black/10"><img src={editingProject.coverImageUrl} alt="作品封面" className="h-44 w-full object-cover" /><button type="button" onClick={() => void handleRemoveProjectImage(editingProject.coverImageUrl!, 'cover')} className="absolute right-2 top-2 rounded bg-black/75 p-2 text-white"><Trash2 size={13} /></button></div> : <label className="flex h-44 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-secondary)] hover:border-[var(--accent)]"><Upload size={18} /><span>{uploadingProjectImage ? '上傳中…' : '點擊上傳封面（10MB 內）'}</span><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={uploadingProjectImage} onChange={(e) => void handleProjectImageUpload(e.target.files, 'cover')} /></label>}</div>
+                      <div className="space-y-2"><span className="block text-xs font-semibold text-[var(--text-secondary)]">作品圖片集</span><label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-[var(--border)] px-4 py-3 text-xs text-[var(--text-secondary)] hover:border-[var(--accent)]"><Upload size={15} /><span>{uploadingProjectImage ? '上傳中…' : '上傳多張圖片'}</span><input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={uploadingProjectImage} onChange={(e) => void handleProjectImageUpload(e.target.files, 'gallery')} /></label><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{(editingProject.galleryImageUrls ?? []).map((url) => <div key={url} className="relative overflow-hidden rounded border border-[var(--border)]"><img src={url} alt="作品截圖" className="h-24 w-full object-cover" /><button type="button" onClick={() => void handleRemoveProjectImage(url, 'gallery')} className="absolute right-1 top-1 rounded bg-black/75 p-1.5 text-white"><Trash2 size={11} /></button></div>)}</div></div>
+                    </div>
+                  </div>
                   <Field label="問題／背景（中文）"><textarea className={textareaClass} value={editingProject.problemZh || ''} onChange={(e) => setEditingProject({ ...editingProject, problemZh: e.target.value })} /></Field>
                   <Field label="問題／背景（英文）"><textarea className={textareaClass} value={editingProject.problemEn || ''} onChange={(e) => setEditingProject({ ...editingProject, problemEn: e.target.value })} /></Field>
                   <Field label="解決方案（中文）"><textarea className={textareaClass} value={editingProject.solutionZh || ''} onChange={(e) => setEditingProject({ ...editingProject, solutionZh: e.target.value })} /></Field>
@@ -610,7 +674,7 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
             <div className="grid gap-3">
               {filteredProjects.map((project) => {
                 const active = project.status === 'active';
-                return <div key={project.id} className="glass-card flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-4 md:flex-row md:items-center md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{project.titleZh}</h3><StatusBadge active={active} /><span className="text-[10px] text-[var(--text-secondary)]">/{project.slug}</span></div><p className="mt-1 text-xs text-[var(--text-secondary)]">{project.category} · 排序 {project.sortOrder}</p></div><div className="flex flex-wrap gap-2"><button onClick={() => void handleToggleProjectPublish(project)} className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold">{active ? <EyeOff size={13} /> : <Eye size={13} />}{active ? '下架' : '上架'}</button><button onClick={() => setEditingProject({ ...project })} className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold"><Pencil size={13} />編輯</button><button onClick={() => void handleDeleteProject(project)} className="rounded-md border border-red-500/25 px-3 py-2 text-red-400"><Trash2 size={13} /></button></div></div>;
+                return <div key={project.id} className="glass-card flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-4 md:flex-row md:items-center md:justify-between"><div className="flex items-center gap-4">{project.coverImageUrl && <img src={project.coverImageUrl} alt="" className="h-16 w-24 rounded border border-[var(--border)] object-cover" />}<div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{project.titleZh}</h3><StatusBadge active={active} /><span className="text-[10px] text-[var(--text-secondary)]">/{project.slug}</span></div><p className="mt-1 text-xs text-[var(--text-secondary)]">{project.category} · 排序 {project.sortOrder}{project.projectUrl ? ' · 已設定專案網址' : ''}</p></div></div><div className="flex flex-wrap gap-2"><button onClick={() => void handleToggleProjectPublish(project)} className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold">{active ? <EyeOff size={13} /> : <Eye size={13} />}{active ? '下架' : '上架'}</button><button onClick={() => setEditingProject({ ...project })} className="flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold"><Pencil size={13} />編輯</button><button onClick={() => void handleDeleteProject(project)} className="rounded-md border border-red-500/25 px-3 py-2 text-red-400"><Trash2 size={13} /></button></div></div>;
               })}
             </div>
           </div>
@@ -702,7 +766,10 @@ export default function AdminPortal({ onLoginSuccess, isLoggedIn }: AdminPortalP
 
         {activeTab === 'crm' && <div className="space-y-5"><div><h2 className="text-lg font-bold">客戶與詢問</h2><p className="text-xs text-[var(--text-secondary)]">目前先提供檢視；下一階段會加入客戶狀態、備註、追蹤與一鍵建立報價。</p></div><div className="grid gap-4 lg:grid-cols-2"><div className="glass-card rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-5"><h3 className="mb-4 text-sm font-bold">最新詢問（{inquiries.length}）</h3><div className="space-y-3">{inquiries.slice(0, 20).map((item) => <div key={item.id} className="rounded-md border border-[var(--border)] p-3"><div className="flex justify-between gap-3"><strong className="text-sm">{item.name}</strong><span className="text-[10px] text-[var(--accent)]">{item.status}</span></div><p className="mt-1 text-xs text-[var(--text-secondary)]">{item.email} · {item.phone}</p><p className="mt-2 text-xs leading-5">{item.message}</p></div>)}</div></div><div className="glass-card rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-5"><h3 className="mb-4 text-sm font-bold">客戶資料（{clients.length}）</h3><div className="space-y-3">{clients.slice(0, 20).map((item) => <div key={item.id} className="rounded-md border border-[var(--border)] p-3"><div className="flex justify-between gap-3"><strong className="text-sm">{item.name}</strong><span className="text-[10px] text-[var(--text-secondary)]">{item.status}</span></div><p className="mt-1 text-xs text-[var(--text-secondary)]">{item.companyName || '個人客戶'} · {item.email}</p></div>)}</div></div></div></div>}
 
-        {activeTab === 'quotes' && <div className="space-y-5"><div><h2 className="text-lg font-bold">報價單</h2><p className="text-xs text-[var(--text-secondary)]">下一階段會擴充完整報價編輯器、報價項目與客戶專屬連結。</p></div><div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-[var(--border-subtle)]"><tr><th className="p-3">編號</th><th className="p-3">標題</th><th className="p-3">總額</th><th className="p-3">狀態</th><th className="p-3">有效期限</th></tr></thead><tbody>{quotes.map((item) => <tr key={item.id} className="border-t border-[var(--border)]"><td className="p-3 font-mono">{item.quoteNumber}</td><td className="p-3 font-semibold">{item.customTitleZh}</td><td className="p-3">NT$ {Number(item.total).toLocaleString()}</td><td className="p-3">{item.status}</td><td className="p-3">{item.validUntil ? new Date(item.validUntil).toLocaleDateString('zh-TW') : '-'}</td></tr>)}</tbody></table></div></div>}
+        {activeTab === 'quotes' && <QuoteContractManager section="quotes" onChanged={loadDatabase} />}
+
+        {activeTab === 'contracts' && <QuoteContractManager section="contracts" onChanged={loadDatabase} />}
+
 
         {activeTab === 'payments' && <div className="space-y-5"><div><h2 className="text-lg font-bold">付款紀錄</h2><p className="text-xs text-[var(--text-secondary)]">Stripe 正式串接完成前，請勿手動將未核對款項標記為已付款。</p></div><div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-[var(--border-subtle)]"><tr><th className="p-3">付款編號</th><th className="p-3">金額</th><th className="p-3">方式</th><th className="p-3">狀態</th><th className="p-3">日期</th></tr></thead><tbody>{payments.map((item) => <tr key={item.id} className="border-t border-[var(--border)]"><td className="p-3 font-mono">{item.paymentNumber}</td><td className="p-3">{item.currency} {Number(item.amount).toLocaleString()}</td><td className="p-3">{item.provider}</td><td className="p-3">{item.status}</td><td className="p-3">{new Date(item.createdAt).toLocaleDateString('zh-TW')}</td></tr>)}</tbody></table></div></div>}
 

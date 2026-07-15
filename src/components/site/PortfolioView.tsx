@@ -1,325 +1,91 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
+import { useEffect, useState } from 'react';
+import {
+  ArrowLeft, ArrowRight, BarChart3, BookOpen, ExternalLink, Layers, ShieldCheck,
+} from 'lucide-react';
 import { useLanguage } from '../../lib/i18n/LanguageContext';
 import { repository } from '../../lib/repositories';
 import { Project } from '../../types';
-import { useState, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, Layers, Cpu, Code, BookOpen, BarChart3, ShieldCheck, Terminal } from 'lucide-react';
 
 interface PortfolioViewProps {
   onNavigate: (path: string) => void;
   selectedSlug?: string;
 }
 
+function ProjectVisual({ project, className = '' }: { project: Project; className?: string }) {
+  if (project.coverImageUrl) {
+    return <img src={project.coverImageUrl} alt={project.titleZh} className={`h-full w-full object-cover ${className}`} loading="lazy" />;
+  }
+  return (
+    <div className={`grid-bg flex h-full w-full items-center justify-center bg-[var(--border-subtle)] ${className}`}>
+      <span className="font-mono text-xs font-bold uppercase tracking-[0.25em] text-[var(--text-secondary)]">{project.coverStyle}</span>
+    </div>
+  );
+}
+
 export default function PortfolioView({ onNavigate, selectedSlug }: PortfolioViewProps) {
   const { t, lang } = useLanguage();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   useEffect(() => {
     const load = async () => {
-      const list = await repository.getProjects();
+      const list = (await repository.getProjects())
+        .filter((project) => project.status === 'active')
+        .sort((a, b) => a.sortOrder - b.sortOrder);
       setProjects(list);
-      if (selectedSlug) {
-        const match = list.find(p => p.slug === selectedSlug);
-        if (match) setSelectedProject(match);
-      } else {
-        setSelectedProject(null);
-      }
+      setSelectedProject(selectedSlug ? list.find((project) => project.slug === selectedSlug) ?? null : null);
     };
-    load();
+    void load();
   }, [selectedSlug]);
 
-  const categories = Array.from(new Set(projects.map(p => p.category))) as string[];
+  const categories = Array.from(new Set(projects.map((project) => project.category)));
+  const filtered = projects.filter((project) => selectedCategory === 'all' || project.category === selectedCategory);
 
-  const filteredProjects = projects.filter(p => {
-    if (p.status === 'archived') return false;
-    if (selectedCategory !== 'all' && p.category !== selectedCategory) return false;
-    return true;
-  });
-
-  const handleProjectClick = (slug: string) => {
-    onNavigate(`/portfolio/${slug}`);
-  };
-
-  const handleBackToList = () => {
-    onNavigate('/portfolio');
-  };
-
-  // 1. DETAIL VIEW CASE STUDY
   if (selectedProject) {
+    const gallery = selectedProject.galleryImageUrls ?? [];
+    const cta = lang === 'zh' ? selectedProject.ctaLabelZh || '瀏覽專案' : selectedProject.ctaLabelEn || 'View project';
     return (
-      <div className="w-full bg-[var(--bg)] text-[var(--text-primary)] transition-colors duration-200 min-h-screen relative">
-        
-        {/* Detail Header Banner */}
-        <header className="relative border-b border-[var(--border)] px-6 py-8 sm:px-8 bg-[var(--bg-elevated)] overflow-hidden">
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--text-primary)]">
+        <header className="relative overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)] px-6 py-10 sm:px-8">
           <div className="ambient-glow" />
           <div className="grid-bg" />
-          
-          <div className="mx-auto max-w-5xl flex flex-col gap-4 relative z-10">
-            <button
-              onClick={handleBackToList}
-              className="inline-flex items-center gap-1.5 text-xs font-mono font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
-            >
-              <ArrowLeft size={13} />
-              <span>{t.common.back}</span>
-            </button>
-            
-            <div className="space-y-2 mt-2">
-              <span className="text-[10px] font-mono tracking-widest font-bold text-[var(--accent)] uppercase bg-[var(--accent)]/10 px-2 py-0.5 border border-[var(--accent)]/20 rounded inline-block">
-                {selectedProject.category}
-              </span>
-              <h1 className="text-3xl sm:text-4xl font-sans font-extrabold tracking-tight text-[var(--text-primary)] leading-tight">
-                {lang === 'zh' ? selectedProject.titleZh : selectedProject.titleEn}
-              </h1>
+          <div className="relative z-10 mx-auto max-w-6xl">
+            <button onClick={() => onNavigate('/portfolio')} className="inline-flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent)]"><ArrowLeft size={14} />{t.common.back}</button>
+            <div className="mt-6 grid items-end gap-6 lg:grid-cols-[1fr_auto]">
+              <div><span className="rounded border border-[var(--accent)]/25 bg-[var(--accent)]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">{selectedProject.category}</span><h1 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-5xl">{lang === 'zh' ? selectedProject.titleZh : selectedProject.titleEn}</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? selectedProject.descriptionZh : selectedProject.descriptionEn}</p></div>
+              {selectedProject.projectUrl && <a href={selectedProject.projectUrl} target={selectedProject.openInNewTab === false ? '_self' : '_blank'} rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--accent)] px-5 py-3 text-xs font-bold text-white shadow-lg hover:opacity-90">{cta}<ExternalLink size={14} /></a>}
             </div>
           </div>
         </header>
 
-        {/* Detail Content Area */}
-        <main className="mx-auto max-w-5xl px-6 sm:px-8 py-10 grid grid-cols-1 md:grid-cols-12 gap-8 relative z-10">
-          
-          {/* Main Case Study Text Body */}
-          <section className="md:col-span-8 space-y-8 bg-[var(--bg-elevated)] p-6 sm:p-8 border border-[var(--border)] rounded-sm glass-card">
-            
-            {/* Overview */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 flex items-center gap-2 text-[var(--text-primary)]">
-                <BookOpen size={13} className="text-[var(--accent)]" />
-                <span>{t.portfolio.overview}</span>
-              </h3>
-              <p className="text-xs sm:text-sm text-[var(--text-secondary)] leading-relaxed">
-                {lang === 'zh' ? selectedProject.longDescriptionZh : selectedProject.longDescriptionEn}
-              </p>
-            </div>
+        <main className="mx-auto max-w-6xl space-y-8 px-6 py-10 sm:px-8">
+          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl"><div className="aspect-[16/8]"><ProjectVisual project={selectedProject} /></div></div>
 
-            {/* Problem & Solution dual card row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-dashed border-[var(--border)] pt-6">
-              <div className="space-y-2">
-                <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-red-500">
-                  {t.portfolio.problem}
-                </h4>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  {lang === 'zh' ? selectedProject.problemZh : selectedProject.problemEn}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-green-500">
-                  {t.portfolio.solution}
-                </h4>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  {lang === 'zh' ? selectedProject.solutionZh : selectedProject.solutionEn}
-                </p>
-              </div>
-            </div>
+          <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
+            <section className="glass-card space-y-8 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-6 sm:p-8">
+              <article><h2 className="flex items-center gap-2 border-b border-[var(--border)] pb-3 text-xs font-bold uppercase tracking-widest"><BookOpen size={14} className="text-[var(--accent)]" />{t.portfolio.overview}</h2><p className="mt-4 whitespace-pre-line text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? selectedProject.longDescriptionZh : selectedProject.longDescriptionEn}</p></article>
+              <div className="grid gap-6 border-t border-dashed border-[var(--border)] pt-7 sm:grid-cols-2"><article><h3 className="text-xs font-bold uppercase tracking-wider text-red-400">{t.portfolio.problem}</h3><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? selectedProject.problemZh : selectedProject.problemEn}</p></article><article><h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">{t.portfolio.solution}</h3><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? selectedProject.solutionZh : selectedProject.solutionEn}</p></article></div>
+              <article className="border-t border-dashed border-[var(--border)] pt-7"><h2 className="flex items-center gap-2 border-b border-[var(--border)] pb-3 text-xs font-bold uppercase tracking-widest"><Layers size={14} className="text-[var(--accent)]" />{t.portfolio.keyFeatures}</h2><ul className="mt-4 grid gap-3 sm:grid-cols-2">{(lang === 'zh' ? selectedProject.featuresZh : selectedProject.featuresEn).map((feature, index) => <li key={`${feature}-${index}`} className="flex gap-3 text-sm leading-6 text-[var(--text-secondary)]"><span className="font-mono font-bold text-[var(--accent)]">{String(index + 1).padStart(2, '0')}</span>{feature}</li>)}</ul></article>
+              <article className="border-t border-dashed border-[var(--border)] pt-7"><h2 className="flex items-center gap-2 border-b border-[var(--border)] pb-3 text-xs font-bold uppercase tracking-widest"><BarChart3 size={14} className="text-[var(--accent)]" />{t.portfolio.results}</h2><p className="mt-4 whitespace-pre-line text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? selectedProject.resultZh : selectedProject.resultEn}</p></article>
+            </section>
 
-            {/* Key Features */}
-            <div className="space-y-3 border-t border-dashed border-[var(--border)] pt-6">
-              <h3 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 flex items-center gap-2 text-[var(--text-primary)]">
-                <Layers size={13} className="text-[var(--accent)]" />
-                <span>{t.portfolio.keyFeatures}</span>
-              </h3>
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-[var(--text-secondary)]">
-                {(lang === 'zh' ? selectedProject.featuresZh : selectedProject.featuresEn)?.map((feat, idx) => (
-                  <li key={idx} className="flex gap-2">
-                    <span className="text-[var(--accent)] font-bold font-mono">[{idx+1}]</span>
-                    <span>{feat}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <aside className="space-y-5"><div className="glass-card rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-5"><h3 className="border-b border-[var(--border)] pb-3 text-xs font-bold uppercase tracking-widest">Technical Stack</h3><div className="mt-4 flex flex-wrap gap-2">{selectedProject.techStack.map((tech) => <span key={tech} className="rounded border border-[var(--border)] bg-[var(--border-subtle)] px-2 py-1 text-[10px] font-bold">{tech}</span>)}</div><div className="mt-5 flex items-center gap-2 text-xs font-bold text-emerald-400"><ShieldCheck size={15} />PRODUCTION_STABLE</div></div>{selectedProject.projectUrl && <a href={selectedProject.projectUrl} target={selectedProject.openInNewTab === false ? '_self' : '_blank'} rel="noreferrer" className="flex w-full items-center justify-between rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-4 text-sm font-bold text-[var(--accent)] hover:bg-[var(--accent)]/15"><span>{cta}</span><ExternalLink size={16} /></a>}</aside>
+          </div>
 
-            {/* Results */}
-            <div className="space-y-3 border-t border-dashed border-[var(--border)] pt-6">
-              <h3 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 flex items-center gap-2 text-[var(--text-primary)]">
-                <BarChart3 size={13} className="text-[var(--accent)]" />
-                <span>{t.portfolio.results}</span>
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-[var(--border-subtle)] p-4 border border-[var(--border)] rounded">
-                  <span className="block text-[10px] font-mono text-[var(--text-primary)] uppercase font-bold">Performance Delta</span>
-                  <p className="text-xs text-[var(--text-secondary)] leading-relaxed mt-1">
-                    {lang === 'zh' ? selectedProject.resultZh : selectedProject.resultEn}
-                  </p>
-                </div>
-                <div className="bg-[var(--border-subtle)] p-4 border border-[var(--border)] rounded flex flex-col justify-between">
-                  <span className="text-[10px] font-mono text-[var(--text-secondary)] uppercase font-bold">System Verification</span>
-                  <div className="flex items-center gap-1.5 text-xs text-green-500 font-mono font-bold mt-2">
-                    <ShieldCheck size={14} />
-                    <span>PRODUCTION_STABLE</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* High-fidelity responsive preview placeholder */}
-            <div className="space-y-3 border-t border-dashed border-[var(--border)] pt-6">
-              <h3 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 text-[var(--text-primary)]">
-                {t.portfolio.screens}
-              </h3>
-              <div className="border border-[var(--border)] h-60 w-full bg-[var(--border-subtle)] flex flex-col items-center justify-center text-center p-6 relative overflow-hidden rounded">
-                {/* Simulated Grid overlay */}
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#e5e5e5_1px,transparent_1px),linear-gradient(to_bottom,#e5e5e5_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#222_1px,transparent_1px),linear-gradient(to_bottom,#222_1px,transparent_1px)] bg-[size:1.5rem_1.5rem] opacity-20" />
-                <Terminal size={32} className="text-[var(--text-secondary)] relative z-10 animate-pulse" />
-                <span className="text-xs font-mono font-bold mt-4 text-[var(--text-secondary)] uppercase tracking-widest relative z-10">[ Interactive Staging Canvas Link Available inside Client Room ]</span>
-              </div>
-            </div>
-
-          </section>
-
-          {/* Sidebar Metadata Card */}
-          <aside className="md:col-span-4 space-y-6">
-            <div className="bg-[var(--bg-elevated)] p-6 border border-[var(--border)] rounded-sm space-y-4 glass-card">
-              <h4 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 text-[var(--text-primary)]">
-                Technical Specifications
-              </h4>
-              <div className="space-y-4 font-mono text-xs">
-                <div>
-                  <span className="text-[var(--text-secondary)] block uppercase text-[10px]">Development Segment</span>
-                  <span className="font-bold text-[var(--text-primary)] uppercase mt-1 block">{selectedProject.category}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--text-secondary)] block uppercase text-[10px]">{t.portfolio.techStack}</span>
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {selectedProject.techStack.map((tech) => (
-                      <span key={tech} className="text-[10px] font-mono bg-[var(--border-subtle)] text-[var(--text-secondary)] px-2 py-0.5 border border-[var(--border)]">
-                        {tech}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[var(--text-secondary)] block uppercase text-[10px]">Delivery Status</span>
-                  <span className="text-green-500 font-bold block mt-1 uppercase">● deployed_active</span>
-                </div>
-              </div>
-
-              <div className="border-t border-dashed border-[var(--border)] pt-4 mt-2">
-                <button
-                  onClick={() => onNavigate('/start')}
-                  className="w-full py-2.5 bg-[var(--accent)] hover:opacity-95 text-white font-mono text-xs font-bold uppercase tracking-widest transition-opacity flex items-center justify-center gap-1.5 rounded-sm shadow"
-                >
-                  <span>{t.nav.startProject}</span>
-                  <ArrowRight size={12} />
-                </button>
-              </div>
-            </div>
-          </aside>
-
+          {gallery.length > 0 && <section><div className="mb-4 flex items-end justify-between"><div><h2 className="text-xl font-bold">{lang === 'zh' ? '專案畫面' : 'Project gallery'}</h2><p className="mt-1 text-xs text-[var(--text-secondary)]">{gallery.length} images</p></div></div><div className="grid gap-4 md:grid-cols-2">{gallery.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]"><img src={url} alt={`${selectedProject.titleZh} ${index + 1}`} className="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]" loading="lazy" /></a>)}</div></section>}
         </main>
-
       </div>
     );
   }
 
-  // 2. MAIN PROJECTS LIST SHOWCASE
   return (
-    <div className="w-full bg-[var(--bg)] text-[var(--text-primary)] transition-colors duration-200 min-h-screen relative">
-      
-      {/* Header Banner */}
-      <header className="relative border-b border-[var(--border)] px-6 py-12 md:py-16 sm:px-8 bg-[var(--bg-elevated)] overflow-hidden">
-        <div className="ambient-glow" />
-        <div className="grid-bg" />
-        
-        <div className="mx-auto max-w-7xl flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10">
-          <div>
-            <h1 className="text-xs tracking-widest uppercase font-mono font-bold text-[var(--text-secondary)] mb-2">Technical Laboratory</h1>
-            <h2 className="text-4xl font-sans font-extrabold tracking-tight text-[var(--text-primary)]">{t.portfolio.title}</h2>
-            <p className="text-xs text-[var(--text-secondary)] mt-2 font-mono">{t.portfolio.subtitle}</p>
-          </div>
-          <button
-            onClick={() => onNavigate('/start')}
-            className="px-5 py-2.5 bg-[var(--accent)] hover:opacity-95 text-white text-xs font-mono font-bold uppercase tracking-widest self-start md:self-end rounded-sm shadow"
-          >
-            {t.nav.startProject}
-          </button>
-        </div>
-      </header>
-
-      {/* Category filter bar */}
-      <section className="mx-auto max-w-7xl px-6 md:px-8 pt-8 relative z-10">
-        <div className="flex flex-wrap gap-2 border-b border-[var(--border)] pb-4">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`px-3 py-1.5 rounded-sm text-xs font-mono font-bold tracking-wider transition-all border ${
-              selectedCategory === 'all' 
-                ? 'bg-[var(--accent)] text-white border-[var(--accent)]' 
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-subtle)] border-transparent'
-            }`}
-          >
-            [ALL] {t.portfolio.all}
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-sm text-xs font-mono font-bold tracking-wider transition-all border ${
-                selectedCategory === cat 
-                  ? 'bg-[var(--accent)] text-white border-[var(--accent)]' 
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-subtle)] border-transparent'
-              }`}
-            >
-              [{cat.toUpperCase()}]
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Projects Grid */}
-      <main className="mx-auto max-w-7xl px-6 md:px-8 py-10 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredProjects.map((project) => (
-            <div 
-              key={project.id}
-              onClick={() => handleProjectClick(project.slug)}
-              className="group cursor-pointer border border-[var(--border)] rounded-sm bg-[var(--bg-elevated)] overflow-hidden hover:border-[var(--accent)]/40 hover:shadow-md transition-all duration-300 flex flex-col justify-between interactive-card"
-            >
-              <div>
-                {/* Cover visual segment */}
-                <div className={`h-36 relative p-4 flex items-end overflow-hidden border-b border-[var(--border)] ${
-                  project.coverStyle === 'purple-glow' ? 'bg-gradient-to-br from-indigo-950 to-neutral-900' :
-                  project.coverStyle === 'emerald-grid' ? 'bg-gradient-to-br from-zinc-900 to-neutral-950' :
-                  project.coverStyle === 'blue-nodes' ? 'bg-gradient-to-br from-blue-950/40 to-neutral-900' :
-                  project.coverStyle === 'titanium-metal' ? 'bg-gradient-to-br from-stone-900 to-stone-950' :
-                  'bg-gradient-to-br from-neutral-900 to-zinc-950'
-                }`}>
-                  <span className="text-[9px] font-mono tracking-widest font-bold uppercase text-white/60 bg-white/10 px-2 py-0.5 rounded border border-white/10">
-                    {project.category}
-                  </span>
-                </div>
-
-                <div className="p-6 space-y-3">
-                  <h4 className="text-sm font-bold text-[var(--text-primary)] font-mono uppercase group-hover:text-[var(--accent)] transition-colors">
-                    {lang === 'zh' ? project.titleZh : project.titleEn}
-                  </h4>
-                  <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">
-                    {lang === 'zh' ? project.descriptionZh : project.descriptionEn}
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-6 pb-6 pt-2 space-y-4">
-                <div className="flex flex-wrap gap-1.5">
-                  {project.techStack.map((tech) => (
-                    <span key={tech} className="text-[9px] font-mono bg-[var(--border-subtle)] text-[var(--text-secondary)] px-2 py-0.5 border border-[var(--border)]">
-                      {tech}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex justify-between items-center text-[10px] font-mono font-bold tracking-wider uppercase pt-2 border-t border-[var(--border)]">
-                  <span className="text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">Read Case Study</span>
-                  <span className="text-[var(--text-primary)] group-hover:translate-x-1.5 transition-transform">→</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </main>
-
+    <div className="min-h-screen bg-[var(--bg)] px-6 py-12 text-[var(--text-primary)] sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="max-w-3xl"><span className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--accent)]">Selected Work</span><h1 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-5xl">{lang === 'zh' ? '作品與專案案例' : 'Portfolio and case studies'}</h1><p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">{lang === 'zh' ? '查看 CK Studio 已完成或正在運行的網站、交易工具與 AI 系統。' : 'Explore websites, trading tools, and AI systems built by CK Studio.'}</p></div>
+        <div className="mt-8 flex flex-wrap gap-2"><button onClick={() => setSelectedCategory('all')} className={`rounded-full border px-4 py-2 text-xs font-bold ${selectedCategory === 'all' ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : 'border-[var(--border)]'}`}>{lang === 'zh' ? '全部' : 'All'}</button>{categories.map((category) => <button key={category} onClick={() => setSelectedCategory(category)} className={`rounded-full border px-4 py-2 text-xs font-bold ${selectedCategory === category ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : 'border-[var(--border)]'}`}>{category}</button>)}</div>
+        <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{filtered.map((project) => <article key={project.id} className="group overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] transition hover:-translate-y-1 hover:shadow-2xl"><button onClick={() => onNavigate(`/portfolio/${project.slug}`)} className="block w-full text-left"><div className="aspect-[16/10] overflow-hidden"><ProjectVisual project={project} className="transition duration-500 group-hover:scale-[1.03]" /></div><div className="p-5"><span className="text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">{project.category}</span><h2 className="mt-2 text-lg font-bold">{lang === 'zh' ? project.titleZh : project.titleEn}</h2><p className="mt-3 line-clamp-3 text-xs leading-6 text-[var(--text-secondary)]">{lang === 'zh' ? project.descriptionZh : project.descriptionEn}</p><span className="mt-5 inline-flex items-center gap-2 text-xs font-bold text-[var(--accent)]">{lang === 'zh' ? '查看案例' : 'View case study'}<ArrowRight size={14} className="transition group-hover:translate-x-1" /></span></div></button>{project.projectUrl && <a href={project.projectUrl} target={project.openInNewTab === false ? '_self' : '_blank'} rel="noreferrer" className="flex items-center justify-between border-t border-[var(--border)] px-5 py-3 text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent)]"><span>{lang === 'zh' ? project.ctaLabelZh || '瀏覽專案' : project.ctaLabelEn || 'View project'}</span><ExternalLink size={13} /></a>}</article>)}</div>
+      </div>
     </div>
   );
 }

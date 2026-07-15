@@ -71,6 +71,17 @@ function AppContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  useEffect(() => {
+    const sensitivePath = path === '/admin' || path === '/login' || path === '/client' || path.startsWith('/client/') || path.startsWith('/quote/') || path.startsWith('/contract/') || path.startsWith('/payment/');
+    let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (!robots) {
+      robots = document.createElement('meta');
+      robots.name = 'robots';
+      document.head.appendChild(robots);
+    }
+    robots.content = sensitivePath ? 'noindex,nofollow,noarchive' : 'index,follow';
+  }, [path]);
+
   const navigate = (newPath: string, state?: any) => {
     window.history.pushState(state || null, '', newPath);
     setPath(newPath);

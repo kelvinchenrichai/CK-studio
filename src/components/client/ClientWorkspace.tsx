@@ -1,693 +1,128 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle, ArrowRight, Check, CheckCircle2, FileSignature, FileText,
+  Loader2, Lock, ShieldCheck,
+} from 'lucide-react';
 import { useLanguage } from '../../lib/i18n/LanguageContext';
 import { repository } from '../../lib/repositories';
-import { Quote, Contract, Client, Payment } from '../../types';
-import { 
-  Check, 
-  FileText, 
-  CreditCard, 
-  Download, 
-  Signature, 
-  Coins, 
-  ArrowRight, 
-  AlertCircle, 
-  Terminal,
-  HelpCircle,
-  Building,
-  Activity,
-  CheckCircle2,
-  Lock
-} from 'lucide-react';
+import { PublicWorkspace } from '../../types';
 
 interface ClientWorkspaceProps {
   token?: string;
   onNavigate: (path: string) => void;
 }
 
-export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientWorkspaceProps) {
-  const { t, lang } = useLanguage();
+const money = (value?: number) => `NT$ ${Number(value || 0).toLocaleString('zh-TW')}`;
+
+export default function ClientWorkspace({ token = '', onNavigate }: ClientWorkspaceProps) {
+  const { lang } = useLanguage();
   const [tokenInput, setTokenInput] = useState('');
-  const [activeToken, setActiveToken] = useState<string>('');
-  
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [contract, setContract] = useState<Contract | null>(null);
-  const [client, setClient] = useState<Client | null>(null);
-  const [payment, setPayment] = useState<Payment | null>(null);
-
-  const [stepperIndex, setStepperIndex] = useState<number>(0); // 0: Quote, 1: Contract, 2: Payment, 3: SuccessOnboarding
+  const [workspace, setWorkspace] = useState<PublicWorkspace | null>(null);
+  const [loading, setLoading] = useState(Boolean(token));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const [signatureName, setSignatureName] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'stripe' | 'manual'>('stripe');
-  const [bankLastFive, setBankLastFive] = useState('');
-  const [paymentSent, setPaymentSent] = useState(false);
+  const [consent, setConsent] = useState(false);
 
-  // Parse token on mount or URL change
+  const repo = repository as any;
+  const quote = workspace?.quote ?? null;
+  const contract = workspace?.contract ?? null;
+  const client = workspace?.client ?? null;
+
+  const load = async (publicToken: string) => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await repo.getPublicWorkspace(publicToken);
+      if (!data) throw new Error(lang === 'zh' ? '連結不存在、已失效或 Token 不正確。' : 'This link is invalid or expired.');
+      setWorkspace(data);
+      if (data.contract?.signatureName) setSignatureName(data.contract.signatureName);
+    } catch (loadError: any) {
+      setWorkspace(null);
+      setError(loadError?.message || (lang === 'zh' ? '無法載入客戶文件。' : 'Unable to load client documents.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const tok = urlToken || '';
-    if (tok) {
-      setActiveToken(tok);
-      loadTokenWorkspace(tok);
-    }
-  }, [urlToken]);
+    if (token) void load(token);
+  }, [token]);
 
-  const loadTokenWorkspace = async (tok: string) => {
-    const [allQuotes, allClients, allContracts, allPayments] = await Promise.all([
-      repository.getQuotes(),
-      repository.getClients(),
-      repository.getContracts(),
-      repository.getPayments(),
-    ]);
+  const quoteExpired = useMemo(() => quote?.validUntil ? new Date(quote.validUntil).getTime() < Date.now() : false, [quote?.validUntil]);
+  const quoteAccepted = Boolean(contract || quote?.status === 'accepted' || quote?.status === 'converted_to_contract');
+  const contractSigned = contract?.status === 'signed' || contract?.status === 'deposit_paid' || contract?.status === 'paid' || contract?.status === 'active' || contract?.status === 'completed';
 
-    // Attempt to match quote token
-    const matchedQuote = allQuotes.find(q => q.publicToken === tok);
-    if (matchedQuote) {
-      setQuote(matchedQuote);
-      const matchedClient = allClients.find(c => c.id === matchedQuote.clientId);
-      if (matchedClient) setClient(matchedClient);
+  const acceptQuote = async () => {
+    if (!token || !quote) return;
+    setBusy(true);
+    try {
+      const updated = await repo.acceptPublicQuote(token);
+      setWorkspace(updated);
+    } catch (acceptError: any) {
+      alert(acceptError?.message || (lang === 'zh' ? '報價接受失敗，請聯絡 CK Studio。' : 'Could not accept the quote.'));
+    } finally { setBusy(false); }
+  };
 
-      const matchedContract = allContracts.find(c => c.quoteId === matchedQuote.id);
-      if (matchedContract) {
-        setContract(matchedContract);
-        if (matchedContract.status === 'signed' || matchedContract.status === 'deposit_paid') {
-          const relatedPayment = allPayments.find(p => p.contractId === matchedContract.id && p.status === 'paid');
-          if (relatedPayment || matchedContract.status === 'deposit_paid') {
-            setStepperIndex(3);
-            if (relatedPayment) setPayment(relatedPayment);
-          } else {
-            setStepperIndex(2);
-          }
-        } else if (matchedContract.status === 'accepted') {
-          setStepperIndex(1);
-        } else {
-          setStepperIndex(0);
-        }
-      } else {
-        setStepperIndex(0);
-      }
+  const signContract = async () => {
+    if (!token || !contract || !consent || signatureName.trim().length < 2) {
+      alert(lang === 'zh' ? '請勾選同意並輸入完整簽署姓名。' : 'Please consent and enter your full legal name.');
       return;
     }
-
-    // Attempt to match contract token directly
-    const matchedContract = allContracts.find(c => c.publicToken === tok);
-    if (matchedContract) {
-      setContract(matchedContract);
-      const matchedClient = allClients.find(c => c.id === matchedContract.clientId);
-      if (matchedClient) setClient(matchedClient);
-
-      const relatedQuote = allQuotes.find(q => q.id === matchedContract.quoteId);
-      if (relatedQuote) setQuote(relatedQuote);
-
-      if (matchedContract.status === 'deposit_paid') setStepperIndex(3);
-      else if (matchedContract.status === 'signed') setStepperIndex(2);
-      else if (matchedContract.status === 'accepted') setStepperIndex(1);
-      else setStepperIndex(0);
-    }
+    setBusy(true);
+    try {
+      const updated = await repo.signPublicContract(token, signatureName.trim());
+      setWorkspace(updated);
+    } catch (signError: any) {
+      alert(signError?.message || (lang === 'zh' ? '合約簽署失敗，請聯絡 CK Studio。' : 'Could not sign the contract.'));
+    } finally { setBusy(false); }
   };
 
-  const handleAccessRoom = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tokenInput.trim()) return;
-    onNavigate(`/client/${tokenInput.trim()}`);
-  };
-
-  // ACTIONS: Accept Quote
-  const handleAcceptQuote = async () => {
-    if (!quote) return;
-    await repository.updateQuoteStatus(quote.id, 'accepted');
-    const allContracts = await repository.getContracts();
-    let matchedContract = allContracts.find(c => c.quoteId === quote.id);
-    if (!matchedContract) {
-      matchedContract = await repository.createContractFromQuote(quote);
-    }
-    await repository.updateContractStatus(matchedContract.id, 'sent');
-    setContract(matchedContract);
-    setStepperIndex(1);
-  };
-
-  // ACTIONS: Sign Contract
-  const handleSignContract = async () => {
-    if (!contract || !signatureName.trim()) {
-      alert(lang === 'zh' ? '請輸入您完整的法定姓名以完成簽署' : 'Please type your full legal name to sign');
-      return;
-    }
-    const updated = await repository.signContract(contract.id, signatureName.trim());
-    if (updated) setContract(updated);
-    setStepperIndex(2);
-  };
-
-  // ACTIONS: Payment Checkout Redirection (Stripe & Bank transfer)
-  const handleProceedPayment = async () => {
-    if (!contract || !quote) return;
-
-    if (paymentMethod === 'stripe') {
-      // 1. Create payment ledger record in local repositories
-      const freshPayment = await repository.createPayment({
-        paymentNumber: `PAY-${Date.now()}`,
-        clientId: contract.clientId,
-        quoteId: contract.quoteId || '',
-        contractId: contract.id,
-        provider: 'stripe',
-        amount: contract.depositAmount,
-        currency: 'TWD',
-        status: 'pending'
-      });
-
-      // 2. Fetch server session URL (handles mock fallback automatically)
-      try {
-        const response = await fetch('/api/stripe/create-checkout-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            paymentId: freshPayment.id,
-            amount: contract.depositAmount,
-            description: `Deposit for Project: ${contract.projectName}`,
-            successUrl: `${window.location.origin}/client/${activeToken}`,
-            cancelUrl: `${window.location.origin}/client/${activeToken}`
-          })
-        });
-        
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Payment initiation failed');
-        }
-
-        if (!data.url) {
-          throw new Error('Checkout URL was not returned');
-        }
-
-        console.log(`[Checkout URL Redirecting] -> ${data.url}`);
-        window.location.href = data.url;
-      } catch (error) {
-        console.error('[Payment API Redirection Error]', error);
-        alert(lang === 'zh'
-          ? '目前尚未啟用線上刷卡，付款狀態不會被標記為成功。'
-          : 'Online card payment is not enabled yet. No payment was marked as paid.');
-      }
-
-    } else {
-      if (!bankLastFive || bankLastFive.length < 5) {
-        alert(lang === 'zh' ? '請輸入匯款帳號後五碼以供對帳' : 'Please enter the last 5 digits of your bank account');
-        return;
-      }
-
-      await repository.createPayment({
-        paymentNumber: `PAY-${Date.now()}`,
-        clientId: contract.clientId,
-        quoteId: contract.quoteId || '',
-        contractId: contract.id,
-        provider: 'manual',
-        amount: contract.depositAmount,
-        currency: 'TWD',
-        status: 'pending',
-        paymentMethod: `Bank Wire pending verification (last 5 digits: ${bankLastFive})`
-      });
-
-      setPaymentSent(true);
-      
-      // Auto transition to success dashboard
-      setTimeout(() => {
-        setStepperIndex(3);
-      }, 1500);
-    }
-  };
-
-  // MOCK: Download PDF receipt trigger
-  const handleDownloadReceipt = () => {
-    alert(lang === 'zh' ? '正在下載數位開案電子收據 (PDF)...' : 'Downloading Digital Onboarding Receipt (PDF)...');
-  };
-
-  // IF NO WORKSPACE TOKEN YET: Show Access Gateway Entry gate
-  if (!activeToken) {
+  if (!token) {
     return (
-      <div className="w-full bg-[var(--bg)] text-[var(--text-primary)] flex items-center justify-center min-h-[75vh] px-6 relative overflow-hidden">
-        <div className="ambient-glow" />
-        <div className="grid-bg" />
-        
-        <div className="w-full max-w-md bg-[var(--bg-elevated)] p-8 border border-[var(--border)] rounded-sm space-y-6 glass-card relative z-10 shadow-xl">
-          <div className="text-center space-y-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)] mx-auto animate-pulse">
-              <Lock size={20} />
-            </div>
-            <h2 className="text-xl font-sans font-extrabold tracking-tight text-[var(--text-primary)]">Client Workspace</h2>
-            <p className="text-xs text-[var(--text-secondary)] font-mono">Enter security room token key below to sync workspace</p>
-          </div>
-
-          <form onSubmit={handleAccessRoom} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="block text-[9px] font-mono uppercase text-[var(--text-secondary)] font-bold">Workspace Token Code</label>
-              <input
-                type="text"
-                required
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="e.g. quote-sec-t1 / contract-sec-t2"
-                className="w-full text-xs font-mono bg-[var(--border-subtle)] text-[var(--text-primary)] border border-[var(--border)] px-3.5 py-2.5 rounded-sm focus:border-[var(--accent)] focus:outline-none focus:ring-0 transition-all shadow-sm"
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-[var(--accent)] hover:opacity-90 text-white font-mono text-xs font-bold uppercase tracking-widest text-center items-center justify-center rounded-sm transition-opacity shadow-sm"
-            >
-              Access Workspace
-            </button>
-          </form>
-
-          {/* Quick tips helper for sandbox tester */}
-          <div className="bg-[var(--border-subtle)] p-4 rounded-sm text-[10px] font-mono leading-relaxed text-[var(--text-secondary)] border border-[var(--border)] shadow-inner">
-            <span className="block font-bold text-[var(--accent)] uppercase mb-1">Sandbox Quick Test Token Keys:</span>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>
-                <button 
-                  type="button" 
-                  onClick={() => { setTokenInput('quote-sec-t1'); }} 
-                  className="underline hover:text-[var(--accent)] cursor-pointer text-left font-mono"
-                >
-                  quote-sec-t1
-                </button> (Preseeded Quote)
-              </li>
-              <li>
-                <button 
-                  type="button" 
-                  onClick={() => { setTokenInput('contract-sec-t2'); }} 
-                  className="underline hover:text-[var(--accent)] cursor-pointer text-left font-mono"
-                >
-                  contract-sec-t2
-                </button> (Preseeded Contract)
-              </li>
-            </ul>
-          </div>
-        </div>
+      <div className="relative flex min-h-[72vh] items-center justify-center overflow-hidden bg-[var(--bg)] px-6 text-[var(--text-primary)]">
+        <div className="ambient-glow" /><div className="grid-bg" />
+        <form onSubmit={(event) => { event.preventDefault(); if (tokenInput.trim()) onNavigate(`/client/${tokenInput.trim()}`); }} className="glass-card relative z-10 w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-7">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Lock size={20} /></div>
+          <h1 className="mt-5 text-center text-xl font-bold">{lang === 'zh' ? '客戶專屬文件空間' : 'Client document room'}</h1>
+          <p className="mt-2 text-center text-xs leading-6 text-[var(--text-secondary)]">{lang === 'zh' ? '請輸入 CK Studio 提供的安全 Token，或直接使用報價／合約連結。' : 'Enter the secure token provided by CK Studio.'}</p>
+          <input value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} className="mt-6 w-full rounded-md border border-[var(--border)] bg-[var(--border-subtle)] px-3 py-3 text-sm outline-none focus:border-[var(--accent)]" placeholder="Secure token" />
+          <button className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-[var(--accent)] px-4 py-3 text-sm font-bold text-white">{lang === 'zh' ? '開啟文件' : 'Open documents'}<ArrowRight size={15} /></button>
+        </form>
       </div>
     );
   }
 
-  // WORKSPACE CORE LAYOUT (WHEN TOKEN LOADED)
+  if (loading) return <div className="flex min-h-[70vh] items-center justify-center bg-[var(--bg)] text-[var(--text-secondary)]"><Loader2 className="mr-2 animate-spin" size={18} />{lang === 'zh' ? '載入安全文件…' : 'Loading secure documents…'}</div>;
+
+  if (error || !workspace) {
+    return <div className="flex min-h-[70vh] items-center justify-center bg-[var(--bg)] px-6"><div className="max-w-md rounded-lg border border-red-500/20 bg-red-500/10 p-6 text-center text-red-400"><AlertCircle className="mx-auto" /><h1 className="mt-3 font-bold">{lang === 'zh' ? '無法開啟文件' : 'Document unavailable'}</h1><p className="mt-2 text-xs leading-6">{error}</p></div></div>;
+  }
+
   return (
-    <div className="w-full bg-[var(--bg)] text-[var(--text-primary)] transition-colors duration-200 min-h-screen relative">
-      
-      {/* Dynamic Workspace Header */}
-      <header className="relative border-b border-[var(--border)] px-6 py-6 sm:px-8 bg-[var(--bg-elevated)] overflow-hidden">
-        <div className="grid-bg" />
-        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] bg-[var(--accent)]/10 text-[var(--accent)] font-mono px-2 py-0.5 rounded uppercase font-bold tracking-wider">
-                ACTIVE_PORTAL
-              </span>
-              <span className="text-xs font-mono text-[var(--text-secondary)]">Token: {activeToken}</span>
-            </div>
-            <h2 className="text-2xl font-sans font-bold tracking-tight text-[var(--text-primary)] mt-1">
-              {client ? `${client.name} Workspace` : 'Interactive Client Workspace'}
-            </h2>
-          </div>
+    <div className="min-h-screen bg-[var(--bg)] px-5 py-10 text-[var(--text-primary)] sm:px-8">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <header className="glass-card rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 sm:p-8">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--accent)]"><ShieldCheck size={14} />CK Studio Secure Room</div><h1 className="mt-3 text-2xl font-extrabold">{quote?.customTitleZh || contract?.projectName}</h1><p className="mt-2 text-sm text-[var(--text-secondary)]">{client?.companyName || client?.name} · {client?.contactName}</p></div><img src="/ck-logo.png" alt="CK Studio" className="h-16 w-24 rounded-md bg-white object-contain p-2" /></div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3"><div className={`rounded-md border p-3 ${quoteAccepted ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-[var(--accent)]/30 bg-[var(--accent)]/10'}`}><span className="text-[10px] text-[var(--text-secondary)]">01</span><strong className="mt-1 block text-sm">{lang === 'zh' ? '確認報價' : 'Quote'}</strong></div><div className={`rounded-md border p-3 ${contractSigned ? 'border-emerald-500/30 bg-emerald-500/10' : contract ? 'border-[var(--accent)]/30 bg-[var(--accent)]/10' : 'border-[var(--border)] opacity-50'}`}><span className="text-[10px] text-[var(--text-secondary)]">02</span><strong className="mt-1 block text-sm">{lang === 'zh' ? '電子簽約' : 'Contract'}</strong></div><div className={`rounded-md border p-3 ${contractSigned ? 'border-[var(--accent)]/30 bg-[var(--accent)]/10' : 'border-[var(--border)] opacity-50'}`}><span className="text-[10px] text-[var(--text-secondary)]">03</span><strong className="mt-1 block text-sm">{lang === 'zh' ? '付款與開案' : 'Payment'}</strong></div></div>
+        </header>
 
-          <button
-            onClick={() => { setActiveToken(''); onNavigate('/client'); }}
-            className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            ← Exit Workspace
-          </button>
-        </div>
-      </header>
+        {quote && <section className="glass-card rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 sm:p-8"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 text-xs font-bold text-[var(--accent)]"><FileText size={15} />{lang === 'zh' ? '專案報價單' : 'Project quotation'}</div><h2 className="mt-2 text-xl font-bold">{quote.customTitleZh}</h2><p className="mt-1 text-xs text-[var(--text-secondary)]">{quote.quoteNumber} · {lang === 'zh' ? '有效期限' : 'Valid until'}：{quote.validUntil ? new Date(quote.validUntil).toLocaleDateString(lang === 'zh' ? 'zh-TW' : 'en-US') : '-'}</p></div><div className="text-right"><span className="text-[10px] text-[var(--text-secondary)]">{lang === 'zh' ? '專案總額' : 'Total'}</span><strong className="block text-2xl">{money(quote.total)}</strong></div></div>
+          <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)]"><div className="grid grid-cols-[1fr_70px_120px] bg-[var(--border-subtle)] px-4 py-3 text-[10px] font-bold text-[var(--text-secondary)]"><span>{lang === 'zh' ? '項目' : 'Item'}</span><span className="text-center">QTY</span><span className="text-right">{lang === 'zh' ? '金額' : 'Amount'}</span></div>{quote.lineItems.map((item) => <div key={item.id} className="grid grid-cols-[1fr_70px_120px] border-t border-[var(--border)] px-4 py-4 text-sm"><div><strong>{lang === 'zh' ? item.titleZh : item.titleEn}</strong>{(lang === 'zh' ? item.descriptionZh : item.descriptionEn) && <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{lang === 'zh' ? item.descriptionZh : item.descriptionEn}</p>}</div><span className="text-center">{item.quantity}</span><span className="text-right font-semibold">{money(item.amount)}</span></div>)}</div>
+          <div className="ml-auto mt-5 max-w-sm space-y-2 text-sm"><div className="flex justify-between text-[var(--text-secondary)]"><span>{lang === 'zh' ? '小計' : 'Subtotal'}</span><span>{money(quote.subtotal)}</span></div>{quote.discount > 0 && <div className="flex justify-between text-[var(--text-secondary)]"><span>{lang === 'zh' ? '折扣' : 'Discount'}</span><span>- {money(quote.discount)}</span></div>}{quote.tax > 0 && <div className="flex justify-between text-[var(--text-secondary)]"><span>{lang === 'zh' ? '稅額' : 'Tax'}</span><span>{money(quote.tax)}</span></div>}<div className="flex justify-between border-t border-[var(--border)] pt-3 text-base font-bold"><span>{lang === 'zh' ? '總計' : 'Total'}</span><span>{money(quote.total)}</span></div><div className="flex justify-between text-xs text-[var(--text-secondary)]"><span>{lang === 'zh' ? `訂金 ${quote.depositPercent}%` : `Deposit ${quote.depositPercent}%`}</span><span>{money(quote.depositAmount)}</span></div></div>
+          {quote.notesZh && <div className="mt-6 rounded-md bg-[var(--border-subtle)] p-4 text-xs leading-6 text-[var(--text-secondary)] whitespace-pre-line">{lang === 'zh' ? quote.notesZh : quote.notesEn || quote.notesZh}</div>}
+          {quote.termsZh && <div className="mt-4 text-[11px] leading-6 text-[var(--text-secondary)] whitespace-pre-line"><strong className="text-[var(--text-primary)]">{lang === 'zh' ? '交易條款：' : 'Terms: '}</strong>{lang === 'zh' ? quote.termsZh : quote.termsEn || quote.termsZh}</div>}
+          {!quoteAccepted && <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[var(--text-secondary)]">{quoteExpired ? (lang === 'zh' ? '此報價單已超過有效期限，請聯絡 CK Studio 更新。' : 'This quote has expired.') : (lang === 'zh' ? '點擊接受後，系統將產生正式合約供你確認與簽署。' : 'Accepting creates the agreement for signature.')}</p><button disabled={busy || quoteExpired || !['sent', 'viewed'].includes(quote.status)} onClick={() => void acceptQuote()} className="flex shrink-0 items-center justify-center gap-2 rounded-md bg-[var(--accent)] px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}{lang === 'zh' ? '接受此報價' : 'Accept quote'}</button></div>}
+          {quoteAccepted && <div className="mt-6 flex items-center gap-2 rounded-md border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-400"><CheckCircle2 size={17} />{lang === 'zh' ? '此報價已接受。請繼續確認下方合約。' : 'Quote accepted. Please review the agreement below.'}</div>}
+        </section>}
 
-      {/* Workspace Dashboard Process Stepper */}
-      <section className="border-b border-[var(--border)] bg-[var(--bg-elevated)] px-6 py-4 sm:px-8 relative z-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid grid-cols-4 gap-2 sm:gap-4 text-center">
-            
-            {[
-              { idx: 0, label: t.client.step1, code: 'Review Quote' },
-              { idx: 1, label: t.client.step2, code: 'Sign Contract' },
-              { idx: 2, label: t.client.step3, code: 'Settle Payment' },
-              { idx: 3, label: t.client.step4, code: 'Kickoff Launch' }
-            ].map((step) => {
-              const isActive = stepperIndex === step.idx;
-              const isPast = stepperIndex > step.idx;
-              return (
-                <div 
-                  key={step.idx}
-                  className={`py-2 border-b-2 font-mono uppercase text-[9px] sm:text-xs transition-all ${
-                    isActive 
-                      ? 'border-[var(--accent)] text-[var(--accent)] font-black' 
-                      : isPast 
-                      ? 'border-green-500 text-green-500 font-bold' 
-                      : 'border-transparent text-[var(--text-secondary)]/50'
-                  }`}
-                >
-                  <span className="block sm:inline mr-1">[{step.idx + 1}]</span>
-                  <span>{step.label}</span>
-                </div>
-              );
-            })}
+        {contract && <section className="glass-card rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-6 sm:p-8"><div className="flex items-center gap-2 text-xs font-bold text-[var(--accent)]"><FileSignature size={15} />{lang === 'zh' ? '正式服務合約' : 'Service agreement'}</div><div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-xl font-bold">{contract.projectName}</h2><p className="mt-1 text-xs text-[var(--text-secondary)]">{contract.contractNumber}</p></div>{contractSigned && <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400">{lang === 'zh' ? '已完成簽署' : 'Signed'}</span>}</div>
+          <article className="prose prose-sm mt-6 max-w-none rounded-lg border border-[var(--border)] bg-white p-5 text-gray-800 sm:p-8" dangerouslySetInnerHTML={{ __html: lang === 'zh' ? contract.contentZh : contract.contentEn || contract.contentZh }} />
+          {!contractSigned ? <div className="mt-6 space-y-4 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-5"><label className="flex cursor-pointer items-start gap-3 text-sm"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1" /><span>{lang === 'zh' ? '我已完整閱讀並同意上述合約內容，並同意以電子方式完成簽署。' : 'I have read and agree to this contract and consent to electronic signature.'}</span></label><label className="block"><span className="mb-2 block text-xs font-bold text-[var(--text-secondary)]">{lang === 'zh' ? '簽署人完整姓名' : 'Full legal name'}</span><input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-3 text-sm outline-none focus:border-[var(--accent)]" placeholder={lang === 'zh' ? '請輸入真實姓名' : 'Enter your legal name'} /></label><button disabled={busy || !consent || signatureName.trim().length < 2} onClick={() => void signContract()} className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--accent)] px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <FileSignature size={15} />}{lang === 'zh' ? '確認並電子簽署' : 'Sign agreement'}</button></div> : <div className="mt-6 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-5"><div className="flex items-center gap-2 font-bold text-emerald-400"><CheckCircle2 size={18} />{lang === 'zh' ? '合約簽署完成' : 'Agreement signed'}</div><p className="mt-2 text-xs leading-6 text-[var(--text-secondary)]">{lang === 'zh' ? `簽署人：${contract.signatureName}｜簽署時間：${contract.signedAt ? new Date(contract.signedAt).toLocaleString('zh-TW') : '-'}` : `Signed by ${contract.signatureName}`}</p></div>}
+        </section>}
 
-          </div>
-        </div>
-      </section>
-
-      {/* Main Workspace Frame */}
-      <main className="mx-auto max-w-7xl px-6 md:px-8 py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
-        
-        {/* Left Side: Dynamic Workspace step card */}
-        <section className="lg:col-span-8 bg-[var(--bg-elevated)] p-6 sm:p-8 border border-[var(--border)] rounded-sm shadow-sm space-y-6 glass-card">
-          
-          {/* STEP 1: REVIEW QUOTE */}
-          {stepperIndex === 0 && quote && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className="border-b border-[var(--border)] pb-3 flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-primary)] font-mono flex items-center gap-2">
-                  <FileText size={15} className="text-[var(--accent)]" />
-                  <span>Review Quote Estimate Blueprint</span>
-                </h3>
-                <span className="text-xs font-mono text-[var(--accent)] font-black">{quote.quoteNumber}</span>
-              </div>
-
-              {/* Estimate Items Table */}
-              <div className="space-y-4">
-                <div className="border border-[var(--border)] divide-y divide-[var(--border)] rounded overflow-hidden shadow-sm">
-                  <div className="bg-[var(--border-subtle)] px-4 py-2.5 grid grid-cols-12 text-[10px] font-mono text-[var(--text-secondary)] uppercase font-black">
-                    <div className="col-span-8">Solution Item / Scope Specification</div>
-                    <div className="col-span-2 text-right">Qty</div>
-                    <div className="col-span-2 text-right">Price (TWD)</div>
-                  </div>
-
-                  {/* Sample items breakdown mapping or fallbacks */}
-                  <div className="px-4 py-3 grid grid-cols-12 text-xs">
-                    <div className="col-span-8">
-                      <span className="font-bold text-[var(--text-primary)]">CK OS Integration blueprint</span>
-                      <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">High-fidelity core studio system setup with automated billing ledger.</p>
-                    </div>
-                    <div className="col-span-2 text-right font-mono text-[var(--text-secondary)]">1</div>
-                    <div className="col-span-2 text-right font-mono text-[var(--text-primary)]">NT$ {quote.subtotal.toLocaleString()}</div>
-                  </div>
-                </div>
-
-                {/* Totals */}
-                <div className="border-t border-[var(--border)] pt-4 flex flex-col items-end gap-1.5 text-xs font-mono">
-                  <div>
-                    <span className="text-[var(--text-secondary)] uppercase">Subtotal:</span>
-                    <span className="ml-3 font-bold text-[var(--text-primary)]">NT$ {quote.subtotal.toLocaleString()}</span>
-                  </div>
-                  <div className="text-[var(--accent)]">
-                    <span className="uppercase">Tax / Invoice (5%):</span>
-                    <span className="ml-3 font-bold">NT$ {quote.tax.toLocaleString()}</span>
-                  </div>
-                  <div className="border-t border-dashed border-[var(--border)] pt-2 mt-1 text-sm">
-                    <span className="text-[var(--text-secondary)] uppercase">Grand Total Estimate:</span>
-                    <span className="ml-3 font-black text-[var(--text-primary)]">NT$ {quote.total.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                {/* Escrow rules panel */}
-                <div className="bg-[var(--border-subtle)] p-4 border border-[var(--border)] rounded text-xs space-y-1">
-                  <span className="block font-mono text-[10px] font-black text-[var(--accent)] uppercase">Payment Schedule Agreement</span>
-                  <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                    A deposit of <span className="font-bold text-[var(--text-primary)] font-mono">{quote.depositPercent}% (NT$ {quote.depositAmount.toLocaleString()})</span> is required upon contract signing to initiate resource allocation. Balance amount <span className="font-bold text-[var(--text-primary)] font-mono">(NT$ {quote.balanceAmount.toLocaleString()})</span> settled upon live deployment confirmation.
-                  </p>
-                </div>
-              </div>
-
-              {/* Accept Trigger CTA */}
-              <div className="pt-4 border-t border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={handleAcceptQuote}
-                  className="w-full py-3 bg-[var(--accent)] hover:opacity-90 text-white font-mono text-xs font-bold uppercase tracking-widest transition-opacity flex items-center justify-center gap-1.5 rounded-sm shadow-sm"
-                  id="btn-accept-quote"
-                >
-                  <span>Accept Quote & Initiate Contract Formulation</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 2: SIGN CONTRACT */}
-          {stepperIndex === 1 && contract && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className="border-b border-[var(--border)] pb-3 flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-primary)] font-mono flex items-center gap-2">
-                  <Signature size={15} className="text-[var(--accent)]" />
-                  <span>Review and Execute Contract Signature</span>
-                </h3>
-                <span className="text-xs font-mono text-[var(--accent)] font-black">{contract.contractNumber}</span>
-              </div>
-
-              {/* Printable Contract Terms Container */}
-              <div className="border border-[var(--border)] p-5 rounded-sm h-60 overflow-y-scroll bg-[var(--border-subtle)] space-y-4 font-sans text-xs leading-relaxed text-[var(--text-secondary)]">
-                <h4 className="text-center font-extrabold text-[var(--text-primary)] uppercase font-sans tracking-wider">[ STUDIO WORK CONTRACT AGREEMENT ]</h4>
-                <p>
-                  This agreement is made and entered into by and between CK Studio ("Provider") and the undersigned organization ("Client") listed in this active workspace.
-                </p>
-                <h5 className="font-bold text-[var(--text-primary)]">1. Scope of Work (SOW)</h5>
-                <p>
-                  {lang === 'zh' ? contract.serviceScopeZh : contract.serviceScopeEn} Provider agrees to develop, optimize, and configure system deliverables as requested in the approved specifications.
-                </p>
-                <h5 className="font-bold text-[var(--text-primary)]">2. Payment & Milestone Schedules</h5>
-                <p>
-                  Client shall pay Provider a non-refundable deposit of {contract.depositAmount.toLocaleString()} TWD upon the execution of this contract. Project work shall not initiate prior to receipt.
-                </p>
-                <h5 className="font-bold text-[var(--text-primary)]">3. Intellectual Property Rights</h5>
-                <p>
-                  All source codes, indicator files, databases, and structural assets transfers entirely to the Client's possession upon final payment ledger clearance. Provider retains promotional portfolio display rights.
-                </p>
-              </div>
-
-              {/* Signature Input */}
-              <div className="space-y-3 bg-[var(--border-subtle)] p-4 border border-[var(--border)] rounded-sm">
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-mono uppercase text-[var(--text-secondary)] font-bold">Full Legal Name Signature / 電子簽名</label>
-                  <input
-                    type="text"
-                    required
-                    value={signatureName}
-                    onChange={(e) => setSignatureName(e.target.value)}
-                    placeholder="Type Legal Name to execute (e.g. Johnathan Doe)"
-                    className="w-full text-xs font-mono bg-[var(--bg)] text-[var(--text-primary)] border border-[var(--border)] px-3.5 py-2.5 rounded-sm focus:border-[var(--accent)] focus:outline-none focus:ring-0 transition-all shadow-sm"
-                    id="input-contract-signature"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--text-secondary)] leading-none">
-                  <Lock size={10} className="text-[var(--accent)]" />
-                  <span>Legally binding electronic handshake agreement under secure token</span>
-                </div>
-              </div>
-
-              {/* Execute Signature Action */}
-              <div className="pt-4 border-t border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={handleSignContract}
-                  className="w-full py-3 bg-[var(--accent)] hover:opacity-90 text-white font-mono text-xs font-bold uppercase tracking-widest transition-opacity flex items-center justify-center gap-1.5 rounded-sm shadow-sm"
-                  id="btn-sign-contract"
-                >
-                  <span>Sign Contract & Lock Handshake</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: SETTLE PAYMENT */}
-          {stepperIndex === 2 && contract && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className="border-b border-[var(--border)] pb-3">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-primary)] font-mono flex items-center gap-2">
-                  <CreditCard size={15} className="text-[var(--accent)]" />
-                  <span>Deposit Escrow Payment Settlement</span>
-                </h3>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-[var(--border-subtle)] p-5 border border-[var(--border)] rounded-sm font-mono text-xs">
-                <div>
-                  <span className="text-[var(--text-secondary)] uppercase text-[10px]">Payment Target</span>
-                  <span className="block font-bold text-[var(--text-primary)] mt-1 uppercase">{contract.projectName}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--text-secondary)] uppercase text-[10px]">Deposit Settle Due</span>
-                  <span className="block font-black text-red-500 dark:text-red-400 mt-1 text-sm">NT$ {contract.depositAmount.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Payment Method Selector */}
-              <div className="space-y-3">
-                <span className="text-[10px] font-mono uppercase text-[var(--text-secondary)] block font-bold">Select Billing Gateway Channel</span>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('stripe')}
-                    className={`p-4 border rounded flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${
-                      paymentMethod === 'stripe' 
-                        ? 'border-[var(--accent)] bg-[var(--border-subtle)] ring-1 ring-[var(--accent)]' 
-                        : 'border-[var(--border)] hover:bg-[var(--border-subtle)]'
-                    }`}
-                  >
-                    <CreditCard size={20} className="text-[var(--accent)]" />
-                    <span className="font-mono text-xs font-bold text-[var(--text-primary)] uppercase">Stripe Checkout Card</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('manual')}
-                    className={`p-4 border rounded flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${
-                      paymentMethod === 'manual' 
-                        ? 'border-[var(--accent)] bg-[var(--border-subtle)] ring-1 ring-[var(--accent)]' 
-                        : 'border-[var(--border)] hover:bg-[var(--border-subtle)]'
-                    }`}
-                  >
-                    <Building size={20} className="text-amber-500" />
-                    <span className="font-mono text-xs font-bold text-[var(--text-primary)] uppercase">Bank Wire Remittance</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Dynamic Gate Info */}
-              {paymentMethod === 'stripe' ? (
-                <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 p-4 rounded text-xs leading-relaxed text-blue-800 dark:text-blue-300">
-                  <span className="block font-bold uppercase font-mono mb-1">Stripe Gateway Core Integration</span>
-                  If credentials are not yet configured in the panel secrets, clicking below will trigger a simulated Stripe checkout redirection success link. Your payment will be updated automatically!
-                </div>
-              ) : (
-                <div className="bg-[var(--border-subtle)] p-5 border border-[var(--border)] rounded-sm space-y-4 font-mono text-xs">
-                  <div className="border-b border-[var(--border)] pb-2">
-                    <span className="block font-bold text-amber-500 uppercase">Manual Wire Coordinates:</span>
-                    <ul className="list-disc pl-4 space-y-1 mt-1 text-[var(--text-secondary)]">
-                      <li>Bank Name: Cathay United Bank (國泰世華銀行 - 013)</li>
-                      <li>Branch: Sinyi Branch (信義分行)</li>
-                      <li>Account Number: <span className="font-bold text-[var(--text-primary)]">9988-1234-5678-9000</span></li>
-                    </ul>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-[10px] font-mono uppercase text-[var(--text-secondary)] font-bold">Last 5 digits of Bank Account / 匯款帳號後五碼</label>
-                    <input
-                      type="text"
-                      maxLength={5}
-                      value={bankLastFive}
-                      onChange={(e) => setBankLastFive(e.target.value.replace(/\D/g, ''))}
-                      placeholder="e.g. 54321"
-                      className="w-full text-xs font-mono bg-[var(--bg)] text-[var(--text-primary)] border border-[var(--border)] px-3.5 py-2.5 rounded-sm focus:border-[var(--accent)] focus:outline-none focus:ring-0 transition-all shadow-sm"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Submit Payment Action */}
-              <div className="pt-4 border-t border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={handleProceedPayment}
-                  disabled={paymentSent}
-                  className="w-full py-3 bg-[var(--accent)] hover:opacity-90 text-white font-mono text-xs font-bold uppercase tracking-widest transition-opacity flex items-center justify-center gap-1.5 rounded-sm shadow-sm"
-                  id="btn-execute-payment"
-                >
-                  {paymentSent ? (
-                    <span>Initiating Payment Transfer Proof...</span>
-                  ) : (
-                    <>
-                      <span>{paymentMethod === 'stripe' ? 'Execute Card Checkout via Stripe' : 'Register Remittance Transfer Proof'}</span>
-                      <ArrowRight size={13} />
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: KICKOFF & RECEIPT ONBOARDING */}
-          {stepperIndex === 3 && contract && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className="text-center space-y-4 py-6">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-950/40 text-green-600 dark:text-green-400 mx-auto">
-                  <CheckCircle2 size={36} />
-                </div>
-                <div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest font-black text-green-500">State: deposit_received</span>
-                  <h3 className="text-2xl font-sans font-bold text-[var(--text-primary)] mt-1">CK Studio Project Formally Kickstarted!</h3>
-                  <p className="text-xs text-[var(--text-secondary)] max-w-md mx-auto leading-relaxed mt-2">
-                    We have successfully synchronized your contract, legal electronic signatures, and verified payment ledger entry. Development resources have been allocated.
-                  </p>
-                </div>
-              </div>
-
-              {/* High-fidelity Onboarding Digital Receipt */}
-              <div className="border border-[var(--border)] bg-[var(--border-subtle)] p-5 rounded-sm font-mono text-xs space-y-4">
-                <div className="flex justify-between items-center border-b border-dashed border-[var(--border)] pb-3">
-                  <span className="font-bold text-[var(--text-primary)] uppercase tracking-wider">Onboarding Receipt Ledger</span>
-                  <span className="text-[var(--text-secondary)] uppercase text-[10px]">LEDGER_CONFIRMED</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-[var(--text-secondary)] block text-[9px] uppercase">Transaction Number</span>
-                    <span className="font-bold text-[var(--text-primary)]">{payment?.paymentNumber || 'P-MOCK-WIRE'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-secondary)] block text-[9px] uppercase">Legal Signature Executed</span>
-                    <span className="font-bold text-[var(--text-primary)] italic">{contract.signatureName || 'Electronic Verified Signature'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-secondary)] block text-[9px] uppercase">Amount Settled</span>
-                    <span className="font-bold text-green-500">NT$ {contract.depositAmount.toLocaleString()} TWD</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-secondary)] block text-[9px] uppercase">Clearing Provider</span>
-                    <span className="font-bold text-[var(--text-primary)] uppercase">{payment?.provider || 'Bank Wire manual'}</span>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-dashed border-[var(--border)] flex flex-col sm:flex-row justify-between items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={handleDownloadReceipt}
-                    className="w-full sm:w-auto px-4 py-2 bg-[var(--text-primary)] text-[var(--bg)] hover:opacity-90 transition-opacity text-[10px] font-mono font-black uppercase tracking-widest flex items-center justify-center gap-1.5 rounded-sm shadow-sm cursor-pointer"
-                  >
-                    <Download size={12} />
-                    <span>Download Onboarding Receipt PDF</span>
-                  </button>
-                  <span className="text-[10px] text-[var(--text-secondary)] font-mono">Security Certificate Verified ✓</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-        </section>
-
-        {/* Right Side: Workspace Information / Support Coordinates */}
-        <aside className="lg:col-span-4 space-y-6">
-          <div className="bg-[var(--bg-elevated)] border border-[var(--border)] p-6 rounded-sm space-y-4 glass-card">
-            <h4 className="text-xs font-mono font-bold uppercase tracking-widest border-b border-[var(--border)] pb-1.5 text-[var(--text-primary)]">
-              Secure Room Overview
-            </h4>
-            
-            <div className="space-y-4 font-mono text-xs">
-              <div>
-                <span className="text-[var(--text-secondary)] block uppercase text-[10px]">Client CRM Name</span>
-                <span className="font-bold text-[var(--text-primary)] block mt-1">{client?.name || 'Inquire pending'}</span>
-              </div>
-              <div>
-                <span className="text-[var(--text-secondary)] block uppercase text-[10px]">Project Directory</span>
-                <span className="font-bold text-[var(--text-primary)] block mt-1">{contract ? contract.projectName : ' formulating...'}</span>
-              </div>
-              <div>
-                <span className="text-[var(--text-secondary)] block uppercase text-[10px]">Client Key contact</span>
-                <span className="text-[var(--text-secondary)] block mt-1 break-all">{client?.email} / {client?.phone}</span>
-              </div>
-            </div>
-
-            <div className="border-t border-dashed border-[var(--border)] pt-4 text-[10px] font-mono text-[var(--text-secondary)] leading-relaxed space-y-2">
-              <span className="block font-bold text-amber-500 uppercase">Need Emergency Support?</span>
-              If you have questions regarding indicator formula translation, n8n webhook keys, or Cathay bank coordinates, reach out to CK Studio directly on official LINE chat.
-            </div>
-          </div>
-        </aside>
-
-      </main>
-
+        {contractSigned && <section className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-6 text-center"><CheckCircle2 className="mx-auto text-[var(--accent)]" size={30} /><h2 className="mt-3 text-lg font-bold">{lang === 'zh' ? '文件流程已完成' : 'Documents completed'}</h2><p className="mx-auto mt-2 max-w-xl text-xs leading-6 text-[var(--text-secondary)]">{lang === 'zh' ? 'CK Studio 將確認簽署紀錄並提供付款／開案資訊。Stripe 付款會在下一階段正式啟用。' : 'CK Studio will verify the signature and provide payment and onboarding details.'}</p></section>}
+      </div>
     </div>
   );
 }

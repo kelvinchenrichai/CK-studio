@@ -1,10 +1,19 @@
-請將以下檔案覆蓋到 GitHub Repo 的相同路徑：
+將本補丁內所有檔案上傳到 GitHub 相同路徑並覆蓋／新增：
 
 src/App.tsx
 src/types.ts
-src/components/admin/AdminPortal.tsx
+src/lib/contracts.ts
 src/lib/repositories/index.ts
 src/lib/supabase/repository.ts
-supabase/migrations/003_admin_auth_rls.sql
+src/components/admin/AdminPortal.tsx
+src/components/admin/QuoteContractManager.tsx
+src/components/client/ClientWorkspace.tsx
+src/components/layout/Navbar.tsx
+src/components/site/HomeView.tsx
+src/components/site/PortfolioView.tsx
+supabase/migrations/004_portfolio_quotes_contracts.sql
 
-.env.example 只供參考，不包含私密金鑰。
+完成 GitHub 上傳後：
+1. 打開 Supabase SQL Editor。
+2. 複製 004_portfolio_quotes_contracts.sql 的完整內容並 Run。
+3. 回 Render 執行 Clear build cache & deploy。
