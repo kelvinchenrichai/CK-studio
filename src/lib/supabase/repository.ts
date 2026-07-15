@@ -53,7 +53,7 @@ function mapService(r: any): Service {
     priceLabelZh: r.price_label_zh ?? '', priceLabelEn: r.price_label_en ?? '',
     billingType: r.billing_type,
     depositPercent: r.deposit_percent, estimatedDeliveryDays: r.estimated_delivery_days,
-    revisionCount: r.revision_count,
+    revisionCount: r.revision_count, showPrice: r.show_price ?? true,
     isPublic: r.is_public, isFeatured: r.is_featured,
     requiresMeeting: r.requires_meeting, requiresContract: r.requires_contract,
     requiresRemoteAccess: r.requires_remote_access, requiresClientMaterials: r.requires_client_materials,
@@ -250,6 +250,9 @@ export class SupabaseRepository {
       tech_stack: p.techStack, features_zh: p.featuresZh, features_en: p.featuresEn,
       status: p.status, is_featured: p.isFeatured, cover_style: p.coverStyle,
       sort_order: p.sortOrder,
+      problem_zh: p.problemZh, problem_en: p.problemEn,
+      solution_zh: p.solutionZh, solution_en: p.solutionEn,
+      result_zh: p.resultZh, result_en: p.resultEn,
     }).select().single();
     if (error) throw error;
     return mapProject(data);
@@ -271,6 +274,13 @@ export class SupabaseRepository {
     if (p.coverStyle !== undefined) updates.cover_style = p.coverStyle;
     if (p.sortOrder !== undefined) updates.sort_order = p.sortOrder;
     if (p.category !== undefined) updates.category = p.category;
+    if (p.slug !== undefined) updates.slug = p.slug;
+    if (p.problemZh !== undefined) updates.problem_zh = p.problemZh;
+    if (p.problemEn !== undefined) updates.problem_en = p.problemEn;
+    if (p.solutionZh !== undefined) updates.solution_zh = p.solutionZh;
+    if (p.solutionEn !== undefined) updates.solution_en = p.solutionEn;
+    if (p.resultZh !== undefined) updates.result_zh = p.resultZh;
+    if (p.resultEn !== undefined) updates.result_en = p.resultEn;
     const { data, error } = await this.db.from('projects').update(updates).eq('id', id).select().single();
     if (error) throw error;
     return mapProject(data);
@@ -305,10 +315,27 @@ export class SupabaseRepository {
       id: generateId(),
       category_id: s.categoryId, title_zh: s.titleZh, title_en: s.titleEn,
       short_description_zh: s.shortDescriptionZh, short_description_en: s.shortDescriptionEn,
+      long_description_zh: s.longDescriptionZh, long_description_en: s.longDescriptionEn,
+      deliverables_zh: s.deliverablesZh, deliverables_en: s.deliverablesEn,
+      requirements_zh: s.requirementsZh, requirements_en: s.requirementsEn,
       base_price: s.basePrice, currency: s.currency,
       price_label_zh: s.priceLabelZh, price_label_en: s.priceLabelEn,
-      billing_type: s.billingType, status: s.status, visibility: s.visibility,
-      availability: s.availability, sort_order: s.sortOrder,
+      billing_type: s.billingType, deposit_percent: s.depositPercent,
+      estimated_delivery_days: s.estimatedDeliveryDays, revision_count: s.revisionCount,
+      show_price: s.showPrice, is_public: s.isPublic, is_featured: s.isFeatured,
+      requires_meeting: s.requiresMeeting, requires_contract: s.requiresContract,
+      requires_remote_access: s.requiresRemoteAccess, requires_client_materials: s.requiresClientMaterials,
+      related_add_on_ids: s.relatedAddOnIds,
+      related_contract_template_id: s.relatedContractTemplateId,
+      stripe_price_id: s.stripePriceId, stripe_payment_link: s.stripePaymentLink,
+      status: s.status, visibility: s.visibility, availability: s.availability,
+      show_on_home: s.showOnHome, show_on_services_page: s.showOnServicesPage,
+      show_on_pricing_page: s.showOnPricingPage,
+      show_on_start_project_page: s.showOnStartProjectPage,
+      show_in_quote_builder: s.showInQuoteBuilder, show_in_admin_only: s.showInAdminOnly,
+      allow_direct_checkout: s.allowDirectCheckout, allow_quote_request: s.allowQuoteRequest,
+      allow_line_consultation: s.allowLineConsultation, allow_booking: s.allowBooking,
+      allow_waitlist: s.allowWaitlist, sort_order: s.sortOrder,
     }).select().single();
     if (error) throw error;
     return mapService(data);
@@ -320,15 +347,24 @@ export class SupabaseRepository {
       categoryId: 'category_id', titleZh: 'title_zh', titleEn: 'title_en',
       shortDescriptionZh: 'short_description_zh', shortDescriptionEn: 'short_description_en',
       longDescriptionZh: 'long_description_zh', longDescriptionEn: 'long_description_en',
-      basePrice: 'base_price', priceLabelZh: 'price_label_zh', priceLabelEn: 'price_label_en',
-      billingType: 'billing_type', status: 'status', visibility: 'visibility',
-      availability: 'availability', sortOrder: 'sort_order',
+      deliverablesZh: 'deliverables_zh', deliverablesEn: 'deliverables_en',
+      requirementsZh: 'requirements_zh', requirementsEn: 'requirements_en',
+      basePrice: 'base_price', currency: 'currency',
+      priceLabelZh: 'price_label_zh', priceLabelEn: 'price_label_en',
+      billingType: 'billing_type', depositPercent: 'deposit_percent',
+      estimatedDeliveryDays: 'estimated_delivery_days', revisionCount: 'revision_count',
+      showPrice: 'show_price', isPublic: 'is_public', isFeatured: 'is_featured',
+      status: 'status', visibility: 'visibility', availability: 'availability', sortOrder: 'sort_order',
       requiresMeeting: 'requires_meeting', requiresContract: 'requires_contract',
+      requiresRemoteAccess: 'requires_remote_access', requiresClientMaterials: 'requires_client_materials',
+      relatedAddOnIds: 'related_add_on_ids', relatedContractTemplateId: 'related_contract_template_id',
+      stripePriceId: 'stripe_price_id', stripePaymentLink: 'stripe_payment_link',
       allowDirectCheckout: 'allow_direct_checkout', allowQuoteRequest: 'allow_quote_request',
       allowLineConsultation: 'allow_line_consultation', allowBooking: 'allow_booking',
       allowWaitlist: 'allow_waitlist', showOnHome: 'show_on_home',
-      showOnServicesPage: 'show_on_services_page', showInQuoteBuilder: 'show_in_quote_builder',
-      isFeatured: 'is_featured',
+      showOnServicesPage: 'show_on_services_page', showOnPricingPage: 'show_on_pricing_page',
+      showOnStartProjectPage: 'show_on_start_project_page', showInQuoteBuilder: 'show_in_quote_builder',
+      showInAdminOnly: 'show_in_admin_only',
     };
     for (const [key, col] of Object.entries(fieldMap)) {
       if ((s as any)[key] !== undefined) updates[col] = (s as any)[key];
@@ -359,8 +395,11 @@ export class SupabaseRepository {
       price_label_zh: p.priceLabelZh, price_label_en: p.priceLabelEn,
       billing_type: p.billingType, deposit_percent: p.depositPercent,
       revision_count: p.revisionCount, estimated_delivery_days: p.estimatedDeliveryDays,
-      features_zh: p.featuresZh, features_en: p.featuresEn,
+      features_zh: p.featuresZh, features_en: p.featuresEn, add_on_ids: p.addOnIds,
       is_recommended: p.isRecommended, visibility: p.visibility, status: p.status,
+      show_on_home: p.showOnHome, show_on_pricing_page: p.showOnPricingPage,
+      show_in_quote_builder: p.showInQuoteBuilder, is_featured: p.isFeatured,
+      stripe_price_id: p.stripePriceId, stripe_payment_link: p.stripePaymentLink,
       sort_order: p.sortOrder,
     }).select().single();
     if (error) throw error;
@@ -379,7 +418,7 @@ export class SupabaseRepository {
       isRecommended: 'is_recommended', visibility: 'visibility', status: 'status',
       showOnHome: 'show_on_home', showOnPricingPage: 'show_on_pricing_page',
       showInQuoteBuilder: 'show_in_quote_builder', isFeatured: 'is_featured',
-      stripePriceId: 'stripe_price_id', sortOrder: 'sort_order',
+      addOnIds: 'add_on_ids', stripePriceId: 'stripe_price_id', stripePaymentLink: 'stripe_payment_link', sortOrder: 'sort_order',
     };
     for (const [key, col] of Object.entries(fieldMap)) {
       if ((p as any)[key] !== undefined) updates[col] = (p as any)[key];
@@ -474,18 +513,20 @@ export class SupabaseRepository {
   }
 
   async createInquiry(i: Omit<Inquiry, 'id' | 'createdAt'>): Promise<Inquiry> {
-    const { data, error } = await this.db.from('inquiries').insert({
-      client_id: i.clientId, name: i.name, email: i.email, phone: i.phone,
-      line_id: i.lineId, company: i.company, industry: i.industry,
+    const id = crypto.randomUUID();
+    const createdAt = now();
+    const { error } = await this.db.from('inquiries').insert({
+      id, client_id: i.clientId, name: i.name, email: i.email, phone: i.phone,
+      line_id: i.lineId, company: i.company, tax_id: i.taxId, industry: i.industry,
       project_type: i.projectType, selected_plan_id: i.selectedPlanId,
       selected_service_ids: i.selectedServiceIds,
       budget_range: i.budgetRange, timeline: i.timeline, message: i.message,
       need_meeting: i.needMeeting, preferred_contact_method: i.preferredContactMethod,
       language_preference: i.languagePreference, invoice_requirement: i.invoiceRequirement,
-      status: i.status ?? 'new',
-    }).select().single();
+      status: i.status ?? 'new', created_at: createdAt,
+    });
     if (error) throw error;
-    return mapInquiry(data);
+    return { ...i, id, createdAt };
   }
 
   async updateInquiryStatus(id: string, status: Inquiry['status']): Promise<void> {
@@ -640,12 +681,14 @@ export class SupabaseRepository {
   }
 
   async createWaitlist(w: Omit<Waitlist, 'id' | 'createdAt'>): Promise<Waitlist> {
-    const { data, error } = await this.db.from('waitlist').insert({
-      service_item_id: w.serviceItemId, name: w.name, email: w.email,
-      phone: w.phone, line_id: w.lineId, message: w.message, status: 'new',
-    }).select().single();
+    const id = crypto.randomUUID();
+    const createdAt = now();
+    const { error } = await this.db.from('waitlist').insert({
+      id, service_item_id: w.serviceItemId, name: w.name, email: w.email,
+      phone: w.phone, line_id: w.lineId, message: w.message, status: 'new', created_at: createdAt,
+    });
     if (error) throw error;
-    return mapWaitlist(data);
+    return { ...w, id, status: w.status ?? 'new', createdAt };
   }
 
   async updateWaitlistStatus(id: string, status: Waitlist['status']): Promise<void> {
@@ -690,8 +733,8 @@ export class SupabaseRepository {
     const fieldMap: Record<string, string> = {
       studioName: 'studio_name', taglineZh: 'tagline_zh', taglineEn: 'tagline_en',
       email: 'email', phone: 'phone',
-      officialLineUrl: 'official_line_url', bookingUrl: 'booking_url',
-      defaultLanguage: 'default_language', defaultTheme: 'default_theme',
+      officialLineUrl: 'official_line_url', bookingUrl: 'booking_url', socials: 'socials',
+      defaultLanguage: 'default_language', defaultTheme: 'default_theme', brandColor: 'brand_color',
     };
     for (const [key, col] of Object.entries(fieldMap)) {
       if ((s as any)[key] !== undefined) updates[col] = (s as any)[key];

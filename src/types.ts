@@ -53,6 +53,7 @@ export interface Service {
   depositPercent: number;
   estimatedDeliveryDays: number;
   revisionCount: number;
+  showPrice: boolean;
   isPublic: boolean;
   isFeatured: boolean;
   requiresMeeting: boolean;

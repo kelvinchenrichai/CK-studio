@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { LanguageProvider, useLanguage } from './lib/i18n/LanguageContext';
 import { repository } from './lib/repositories';
+import { supabase } from './lib/supabase/client';
 import { Service, PricingPlan, SiteSettings } from './types';
 
 // Layout & Site Components
@@ -108,22 +109,42 @@ function AppContent() {
     };
   }, []);
 
-  // Admin login status
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('ck_studio_admin_session') === 'true';
+  // Admin authentication is handled by Supabase Auth.
+  // Only the configured CK Studio admin email is accepted.
+  const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || 'kelvinchenrichai@gmail.com').toLowerCase();
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) {
+      setIsAdminLoggedIn(false);
+      return;
     }
-    return false;
-  });
+
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      const sessionEmail = data.session?.user?.email?.toLowerCase();
+      setIsAdminLoggedIn(sessionEmail === adminEmail);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const sessionEmail = session?.user?.email?.toLowerCase();
+      setIsAdminLoggedIn(sessionEmail === adminEmail);
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [adminEmail]);
 
   const handleAdminLoginSuccess = () => {
     setIsAdminLoggedIn(true);
-    localStorage.setItem('ck_studio_admin_session', 'true');
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
     setIsAdminLoggedIn(false);
-    localStorage.removeItem('ck_studio_admin_session');
     navigate('/');
   };
 

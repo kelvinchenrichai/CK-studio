@@ -1,0 +1,10 @@
+請將以下檔案覆蓋到 GitHub Repo 的相同路徑：
+
+src/App.tsx
+src/types.ts
+src/components/admin/AdminPortal.tsx
+src/lib/repositories/index.ts
+src/lib/supabase/repository.ts
+supabase/migrations/003_admin_auth_rls.sql
+
+.env.example 只供參考，不包含私密金鑰。
