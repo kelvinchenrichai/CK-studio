@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { LanguageProvider, useLanguage } from './lib/i18n/LanguageContext';
 import { repository } from './lib/repositories';
-import { Service, PricingPlan } from './types';
+import { Service, PricingPlan, SiteSettings } from './types';
 
 // Layout & Site Components
 import Navbar from './components/layout/Navbar';
@@ -25,6 +25,20 @@ import {
   ArrowRight,
   ClipboardList
 } from 'lucide-react';
+
+const FALLBACK_SITE_SETTINGS: SiteSettings = {
+  studioName: 'CK Studio',
+  taglineZh: '為交易員、創作者與企業打造 AI 驅動的智能軟體系統。',
+  taglineEn: 'Building intelligent software for traders, creators, and businesses.',
+  email: 'hello@ckstudio.dev',
+  phone: '+886 900 000 000',
+  officialLineUrl: 'https://lin.ee/your-line-placeholder',
+  bookingUrl: 'https://calendly.com/ck-studio',
+  socials: {},
+  defaultLanguage: 'zh',
+  defaultTheme: 'dark',
+  brandColor: '#3B82F6',
+};
 
 function AppContent() {
   const { t, lang } = useLanguage();
@@ -63,26 +77,35 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Global Brand/Site settings loaded from repository (Supabase or LocalStorage)
-  const [siteSettings, setSiteSettings] = useState<any>(null);
+  // Global Brand/Site settings loaded from repository (Supabase or LocalStorage).
+  // Start with safe defaults so child components never receive null during the first render.
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(FALLBACK_SITE_SETTINGS);
 
   useEffect(() => {
-    repository.getSiteSettings().then(setSiteSettings).catch(() => {
-      // Fallback defaults if settings not yet seeded
-      setSiteSettings({
-        studioName: 'CK Studio',
-        taglineZh: '為交易員、創作者與企業打造 AI 驅動的智能軟體系統。',
-        taglineEn: 'Building intelligent software for traders, creators, and businesses.',
-        email: 'hello@ckstudio.dev',
-        phone: '+886 900 000 000',
-        officialLineUrl: 'https://lin.ee/your-line-placeholder',
-        bookingUrl: 'https://calendly.com/ck-studio',
-        socials: {},
-        defaultLanguage: 'zh',
-        defaultTheme: 'dark',
-        brandColor: '#3B82F6',
-      });
-    });
+    let cancelled = false;
+
+    const loadSiteSettings = async () => {
+      try {
+        const loadedSettings = await repository.getSiteSettings();
+        if (cancelled || !loadedSettings) return;
+
+        setSiteSettings({
+          ...FALLBACK_SITE_SETTINGS,
+          ...loadedSettings,
+          socials: {
+            ...FALLBACK_SITE_SETTINGS.socials,
+            ...(loadedSettings.socials ?? {}),
+          },
+        });
+      } catch (error) {
+        console.error('[CK Studio] Failed to load site settings; using defaults.', error);
+      }
+    };
+
+    loadSiteSettings();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Admin login status
