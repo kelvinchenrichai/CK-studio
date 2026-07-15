@@ -1,195 +1,134 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * CK Studio full-stack server.
+ * Render preview configuration: serves the Vite build and exposes API routes.
  */
 
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = 3000; // Hardcoded requirement by AI Studio reverse proxy
+const PORT = Number(process.env.PORT || 3000);
+const distPath = path.resolve(process.cwd(), 'dist');
 
-// Support JSON payloads
-app.use(express.json());
-
-// API: Check if Supabase / Stripe are fully configured
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    supabaseConnected: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-    stripeConnected: !!process.env.STRIPE_SECRET_KEY,
-    time: new Date().toISOString()
-  });
-});
-
-// API: Create Stripe Checkout Session
-app.post('/api/stripe/create-checkout-session', (req, res) => {
-  const { paymentId, amount, description, successUrl, cancelUrl } = req.body;
-
-  if (!paymentId || !amount) {
-    return res.status(400).json({ error: 'Missing paymentId or amount' });
-  }
-
-  const isStripeConfigured = !!process.env.STRIPE_SECRET_KEY;
-
-  if (!isStripeConfigured) {
-    // Return a Mock Stripe Checkout redirection session
-    console.log(`[Stripe Mock] Creating session for Payment ${paymentId}, Amount: NT$ ${amount}`);
-    
-    // In our Mock engine, we simulate a checkout URL pointing to our success route with the payment ID
-    const mockSessionId = `cs_test_mock_${Math.random().toString(36).substring(2, 11)}`;
-    const mockCheckoutUrl = `${successUrl}?session_id=${mockSessionId}&payment_id=${paymentId}&mock_success=true`;
-    
-    return res.json({
-      id: mockSessionId,
-      url: mockCheckoutUrl,
-      isMock: true
-    });
-  }
-
-  // Real Stripe Implementation (Surgical verification)
-  try {
-    // Standard Stripe lazy initialization to prevent startup crashes when keys are missing
-    import('stripe').then(({ default: Stripe }) => {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-        apiVersion: '2025-01-27.acac' as any
-      });
-
-      stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price_data: {
-              currency: 'twd',
-              product_data: {
-                name: description || 'CK Studio custom contract payment',
-              },
-              unit_amount: Math.round(amount * 100), // Stripe expects cents
-            },
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}&payment_id=${paymentId}`,
-        cancel_url: cancelUrl,
-        metadata: {
-          paymentId
-        }
-      }).then((session) => {
-        res.json({
-          id: session.id,
-          url: session.url,
-          isMock: false
-        });
-      }).catch((err) => {
-        console.error('[Stripe Error]', err);
-        res.status(500).json({ error: err.message });
-      });
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to create stripe payment: ' + error.message });
-  }
-});
-
-// API: Stripe Payment Link Placeholder Creator
-app.post('/api/stripe/create-payment-link', (req, res) => {
-  const { amount, title } = req.body;
-  res.json({
-    paymentLinkId: `plink_test_${Math.random().toString(36).substring(2, 10)}`,
-    url: 'https://buy.stripe.com/mock-payment-link-placeholder',
-    isMock: true
-  });
-});
-
-// API: Stripe Webhook Route with full signature verification scaffolding
+// Stripe requires the exact raw request body for signature verification.
+// This route must be registered before express.json().
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const signature = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
-  if (!sig || !endpointSecret) {
-    console.warn('[Stripe Webhook] Received webhook but signature or secret is missing. Running in permissive mode.');
-    return res.status(200).send({ received: true, mode: 'unverified_permissive' });
+  if (!signature || !webhookSecret || !stripeSecretKey) {
+    return res.status(503).json({ error: 'Stripe webhook is not configured.' });
   }
 
   try {
     const { default: Stripe } = await import('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-      apiVersion: '2025-01-27.acac' as any
-    });
+    const stripe = new Stripe(stripeSecretKey);
+    const event = stripe.webhooks.constructEvent(req.body, signature as string, webhookSecret);
 
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, sig as string, endpointSecret);
-    } catch (err: any) {
-      console.error(`[Stripe Webhook Error] Signature validation failed: ${err.message}`);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    // Handle payment events
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as any;
       const paymentId = session.metadata?.paymentId;
-      console.log(`[Stripe Webhook] Payment completed successfully for: ${paymentId}`);
-      // Here you would connect to Supabase/Repository to flag as PAID
+      console.log(`[Stripe Webhook] Verified checkout completion for payment: ${paymentId ?? 'unknown'}`);
+      // Production TODO: validate the amount/currency and update Supabase server-side.
     }
 
-    res.json({ received: true });
-  } catch (err: any) {
-    res.status(500).send(`Server Webhook Error: ${err.message}`);
+    return res.json({ received: true });
+  } catch (error: any) {
+    console.error('[Stripe Webhook Error]', error);
+    return res.status(400).send(`Webhook Error: ${error.message}`);
   }
 });
 
-// API: Settle Payment Status Sync
-app.get('/api/payments/:id/status', (req, res) => {
-  const paymentId = req.params.id;
-  // Echo payment status back
+app.use(express.json({ limit: '1mb' }));
+
+app.get('/api/health', (_req, res) => {
   res.json({
-    paymentId,
-    status: 'paid',
-    lastChecked: new Date().toISOString()
+    status: 'ok',
+    supabaseConfigured:
+      process.env.VITE_ENABLE_SUPABASE === 'true' && Boolean(process.env.VITE_SUPABASE_URL),
+    stripeCheckoutEnabled:
+      process.env.ENABLE_STRIPE_CHECKOUT === 'true' && Boolean(process.env.STRIPE_SECRET_KEY),
+    time: new Date().toISOString(),
   });
 });
 
-// Full-stack Vite handling
-async function startServer() {
-  const isProduction = process.env.NODE_ENV === 'production' || fs.existsSync(path.join(__dirname, 'dist'));
-
-  if (!isProduction) {
-    console.log('[Dev Mode] Running Express server with Vite middleware...');
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-
-    // Use Vite's connect instance as middleware
-    app.use(vite.middlewares);
-  } else {
-    console.log('[Prod Mode] Serving pre-built static files from dist/');
-    app.use(express.static(path.join(__dirname, 'dist')));
-    
-    // SPA fallback route for routing (e.g. client, admin routes)
-    app.get('*', (req, res, next) => {
-      // Skip API requests
-      if (req.path.startsWith('/api/')) return next();
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+app.post('/api/stripe/create-checkout-session', async (req, res) => {
+  // Disabled by default because the current client sends the amount directly.
+  // Enable only after the server reads and validates payment details from Supabase.
+  if (process.env.ENABLE_STRIPE_CHECKOUT !== 'true') {
+    return res.status(503).json({
+      error: 'Stripe checkout is disabled in this preview deployment.',
+      code: 'STRIPE_CHECKOUT_DISABLED',
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Fullstack Server] CK Studio running on http://0.0.0.0:${PORT}`);
-  });
-}
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const { paymentId, amount, description, successUrl, cancelUrl } = req.body ?? {};
+  const numericAmount = Number(amount);
 
-startServer().catch((err) => {
-  console.error('Fatal startup error:', err);
+  if (!stripeSecretKey) {
+    return res.status(503).json({ error: 'Stripe is not configured.' });
+  }
+
+  if (!paymentId || !Number.isFinite(numericAmount) || numericAmount <= 0 || !successUrl || !cancelUrl) {
+    return res.status(400).json({ error: 'Invalid checkout request.' });
+  }
+
+  try {
+    const { default: Stripe } = await import('stripe');
+    const stripe = new Stripe(stripeSecretKey);
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'twd',
+            product_data: { name: description || 'CK Studio contract payment' },
+            unit_amount: Math.round(numericAmount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}&payment_id=${paymentId}`,
+      cancel_url: cancelUrl,
+      metadata: { paymentId },
+    });
+
+    return res.json({ id: session.id, url: session.url, isMock: false });
+  } catch (error: any) {
+    console.error('[Stripe Error]', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/stripe/create-payment-link', (_req, res) => {
+  res.status(501).json({ error: 'Payment-link creation is not implemented.' });
+});
+
+app.get('/api/payments/:id/status', (req, res) => {
+  res.status(501).json({
+    paymentId: req.params.id,
+    status: 'verification_not_implemented',
+    error: 'Payment status must be verified from Stripe or Supabase server-side.',
+  });
+});
+
+app.use(express.static(distPath));
+
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  return res.sendFile(path.join(distPath, 'index.html'));
+});
+
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[CK Studio] Listening on http://0.0.0.0:${PORT}`);
 });

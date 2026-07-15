@@ -171,25 +171,22 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
         });
         
         const data = await response.json();
-        
-        if (data.url) {
-          // If the backend returned a mock redirection URL or a real stripe url, follow it
-          console.log(`[Checkout URL Redirecting] -> ${data.url}`);
-          
-          if (data.isMock) {
-            await repository.updatePaymentStatus(freshPayment.id, 'paid');
-            await repository.updateContractStatus(contract.id, 'deposit_paid');
-            window.location.href = data.url;
-          } else {
-            window.location.href = data.url;
-          }
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Payment initiation failed');
         }
+
+        if (!data.url) {
+          throw new Error('Checkout URL was not returned');
+        }
+
+        console.log(`[Checkout URL Redirecting] -> ${data.url}`);
+        window.location.href = data.url;
       } catch (error) {
         console.error('[Payment API Redirection Error]', error);
-        alert('Payment initiation failed. Proceeding with Simulated Direct Confirmation.');
-        await repository.updatePaymentStatus(freshPayment.id, 'paid');
-        await repository.updateContractStatus(contract.id, 'deposit_paid');
-        setStepperIndex(3);
+        alert(lang === 'zh'
+          ? '目前尚未啟用線上刷卡，付款狀態不會被標記為成功。'
+          : 'Online card payment is not enabled yet. No payment was marked as paid.');
       }
 
     } else {
@@ -206,12 +203,10 @@ export default function ClientWorkspace({ token: urlToken, onNavigate }: ClientW
         provider: 'manual',
         amount: contract.depositAmount,
         currency: 'TWD',
-        status: 'paid',
-        paymentMethod: `Bank Wire (last 5 digits: ${bankLastFive})`,
-        paidAt: new Date().toISOString()
+        status: 'pending',
+        paymentMethod: `Bank Wire pending verification (last 5 digits: ${bankLastFive})`
       });
 
-      await repository.updateContractStatus(contract.id, 'deposit_paid');
       setPaymentSent(true);
       
       // Auto transition to success dashboard
